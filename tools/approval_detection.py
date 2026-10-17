@@ -18,6 +18,7 @@ from tools.approval_parser_budget import _scan_backtick_end, _scan_dollar_paren_
 from tools.approval_ansi_c import _is_shell_comment_start, expand_ansi_c_quotes
 from tools.approval_home_fold import _rewrite_resolved_hermes_home, _rewrite_resolved_user_home
 from tools.approval_env_split import _split_env_string
+from tools.shell_heredoc import mask_heredoc_bodies_for_shell_scan
 
 logger = logging.getLogger("tools.approval")
 
@@ -517,7 +518,8 @@ def _detect_hardline_command(command: str) -> tuple:
     # (`\"` -> `"`), so a shell-valid pattern like `grep -o "[^\"]*"` lexed as unterminated and was
     # reported as a hardline block (118 of 125 hardline blocks in one week of real use, every one a
     # benign grep). Only quoted newlines are masked: they are data, and masking keeps quoting intact.
-    _, malformed_grep = _grep_safe_detection_variant(_mask_quoted_newlines(expand_ansi_c_quotes(command)))
+    scan_command = expand_ansi_c_quotes(mask_heredoc_bodies_for_shell_scan(command))
+    _, malformed_grep = _grep_safe_detection_variant(_mask_quoted_newlines(scan_command))
     if malformed_grep:
         return (True, _MALFORMED_EXEC_DESCRIPTION)
     for command_variant in _command_detection_variants(command):
@@ -1712,7 +1714,7 @@ def _deny_command_variants(command: str):
     executable basename (never arbitrary argument paths).
     """
     yield from _command_detection_variants(command)
-    pending, seen = [expand_ansi_c_quotes(command)], set()
+    pending, seen = [expand_ansi_c_quotes(mask_heredoc_bodies_for_shell_scan(command))], set()
     while pending:
         source = pending.pop()
         if source in seen:
@@ -1756,6 +1758,7 @@ def _deny_command_variants(command: str):
 
 
 def _command_detection_variants(command: str):
+    command = mask_heredoc_bodies_for_shell_scan(command)
     # Mask quoted newlines BEFORE normalization: normalization strips escapes (\" -> ") and ""
     # pairs, corrupting quote tracking (`echo "a\""` becomes an unterminated quote) so masking
     # afterwards could swallow a REAL unquoted newline separator. The raw command carries faithful quote state
