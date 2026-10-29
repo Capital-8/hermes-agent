@@ -222,9 +222,6 @@ def test_a_commit_build_runs_the_default_jobs_but_upgrade_tests_and_publishes_no
                 "docker": {"result": "success"}}
     for name in ("publish-bundles", "publish-canary", "publish-docker"):
         assert not gate(jobs[name]["if"], {}, accepted), name
-    store = workflow("desktop-bundled-release.yml")["jobs"]["stable-store"]["if"]
-    assert not gate(store, {"release-phase": "publish", "skip-store": False,
-                            "tag": "commit.20261026T180000Z-v1.2.3"}, {"validate": {"result": "success"}})
     # Its page is rendered from the pinned accepted candidate into its own claim archive only.
     render = next(step for step in publish["steps"] if "render-builds-table.py" in step.get("run", ""))
     for flag in ('--archive "$RELEASE_CLAIM_TAG"', '--candidate-manifest-sha256 "$CANDIDATE_MANIFEST_SHA256"',
@@ -347,11 +344,6 @@ def test_canary_publication_follows_its_claims_green_policy_and_never_touches_st
     bundles = jobs["publish-bundles"]
     accepted = {"admit": admit, "acceptance": {"result": "success"}, "candidate-manifest": manifest}
     assert not gate(bundles["if"], {}, accepted)
-    store = workflow("desktop-bundled-release.yml")["jobs"]["stable-store"]["if"]
-    publish_phase = {"release-phase": "publish", "skip-store": False}
-    assert gate(store, {**publish_phase, "tag": "rc.1-v1.2.3"}, {"validate": {"result": "success"}})
-    assert not gate(store, {**publish_phase, "tag": "canary.20261021T064100Z-v1.2.3"},
-                    {"validate": {"result": "success"}})
     # Publication runs the canary controller under the job's own needs, with the pinned candidate.
     steps = publish["steps"]
     assert any("release_artifacts publish" in step.get("run", "") for step in steps)
@@ -383,6 +375,24 @@ def test_canary_publication_follows_its_claims_green_policy_and_never_touches_st
                                 job_if=False, failed=True), (name, held)
             assert not gate(step["if"], {}, {**canary_needs, "publish-docker": {"result": "failure"}},
                             job_if=False), name
+
+
+CLAIMS = {"stable": "rc.1-v1.2.3", "canary": "canary.20261021T064100Z-v1.2.3",
+          "commit": "commit.20261026T180000Z-v1.2.3", "channel": "channel.20261028T130000Z-v1.2.3"}
+
+
+@pytest.mark.parametrize("policy", lane_set.POLICIES)
+def test_only_a_stable_claim_reaches_the_store_submission(policy):
+    """Policy keeps every other kind off publish-bundles; the Store job also refuses any claim but a
+    stable one, whatever tag the caller passes beside it."""
+    claim = CLAIMS[policy]
+    store = workflow("desktop-bundled-release.yml")["jobs"]["stable-store"]["if"]
+    inputs = {"release-phase": "publish", "skip-store": False, "claim-tag": claim}
+    for tag in (claim, "v1.2.3"):
+        assert gate(store, {**inputs, "tag": tag}, {"validate": {"result": "success"}}) is (policy == "stable")
+    assert not gate(store, {**inputs, "tag": "v1.2.3", "skip-store": True}, {"validate": {"result": "success"}})
+    assert not gate(store, {**inputs, "tag": "v1.2.3", "release-phase": "candidate"},
+                    {"validate": {"result": "success"}})
 
 
 def test_lane_inputs_reach_the_workflows_they_configure():

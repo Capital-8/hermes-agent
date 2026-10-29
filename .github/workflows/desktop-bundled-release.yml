@@ -1512,8 +1512,10 @@ jobs:
     # publication pass switches it to Immediate, so a run whose stable-publish fails
     # leaves a held submission no customer sees, never a live build.
     needs: [validate]
-    # Never a canary: a canary builds and stages its Store bundle but only stable submits one.
-    if: inputs.release-phase == 'publish' && inputs.skip-store != true && !startsWith(inputs.tag, 'canary.') && !startsWith(inputs.tag, 'commit.')
+    # Stable claims (rc.N-vX.Y.Z) only: every other kind may build and stage a Store bundle, but only
+    # stable submits one. Only publish-bundles (stable policy) calls the publish phase; this holds
+    # even if another caller did.
+    if: inputs.release-phase == 'publish' && inputs.skip-store != true && startsWith(inputs.claim-tag, 'rc.')
     # The Store is not a release gate: a failed submission leaves the release publishable
     # and the summary names the Store package for a manual Partner Center upload.
     continue-on-error: true
