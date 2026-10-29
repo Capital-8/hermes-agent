@@ -78,28 +78,6 @@ _KIND_TAG_RE = re.compile(rf"^(?P<kind>canary|commit|channel)\.(?P<stamp>20\d{{6
 STABLE_TAG_RE = re.compile(rf"^v{_VERSION_CORE}$")
 
 
-# The retired canary shape, ``v<stable>+canary.<stamp>``. Nothing produces it; release tooling reads
-# it only in records published before the prefix shape (a channel head's previous manifest, a live
-# macOS feed), so the first prefix-shaped canary can order itself after them and replace them.
-_LEGACY_CANARY_TAG_RE = re.compile(rf"^v(?P<core>{_VERSION_CORE})\+canary\.(?P<stamp>20\d{{6}}T\d{{6}}Z)$")
-
-
-def published_canary_timestamp(tag: Any) -> str | None:
-    """The build stamp of a published canary tag of either shape (ordering against old records)."""
-    if not isinstance(tag, str):
-        return None
-    match = _CANARY_TAG_RE.fullmatch(tag.strip()) or _LEGACY_CANARY_TAG_RE.fullmatch(tag.strip())
-    return match["stamp"] if match else None
-
-
-def published_release_version(tag: Any) -> str | None:
-    """release_version, also reading the retired canary shape of already-published records."""
-    version = release_version(tag)
-    if version is None and isinstance(tag, str) and _LEGACY_CANARY_TAG_RE.fullmatch(tag.strip()):
-        version = tag.strip()[1:]
-    return version
-
-
 def is_canary_tag(tag: Any) -> bool:
     """True for a canonical canary tag (``canary.<stamp>-vX.Y.Z``)."""
     if not isinstance(tag, str):

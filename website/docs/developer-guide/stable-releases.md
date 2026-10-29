@@ -367,9 +367,9 @@ block it.
 A manual dispatch starts one at any time and requires every selected suite to
 pass unless its `require_green` input is off. Runs queue with
 `cancel-in-progress: false`. If `main` has no new commits, the run resumes an
-unpublished canary or does nothing. The retired `v<stable>+canary.<stamp>` and
-`-canary.` identities are no longer produced; old ones age out through
-`--prune-canaries`.
+unpublished canary or does nothing. Only the `canary.<stamp>-v<stable>` tag is
+a canary: nothing reads, orders or prunes the retired `v<stable>+canary.<stamp>`
+and `-canary.` shapes.
 If a process stops after pushing the canary tag, rerunning the command verifies
 the exact remote tag object, repairs the missing draft, and redispatches until the
 protected canary head receipts that tag.
