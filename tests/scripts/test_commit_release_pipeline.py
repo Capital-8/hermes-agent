@@ -378,7 +378,7 @@ def test_build_commit_claims_the_commit_and_runs_stable_release_on_it(commit_rep
     assert parsed["bundleEnv"] == {"HERMES_PREVIEW_FULL_CONNECTORS": "1", "HERMES_HOME": None}
     dispatches = [call for call in calls if call[1:3] == ["workflow", "run"]]
     assert dispatches == [["gh", "workflow", "run", "stable-release.yml", "--ref", "main",
-                           "--repo", "fixture/release", "-f", f"tag={tag}"]]
+                           "--repo", "fixture/release", "--raw-field", f"tag={tag}"]]
     assert f"https://releases.example/releases/tag/{tag}/index.html" in capsys.readouterr().out
 
 

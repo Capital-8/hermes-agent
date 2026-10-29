@@ -333,10 +333,7 @@ def release(commit: str, *, bump: str, repo: Path, remote: str, repository: str,
             ]) or "").strip()
         finally:
             os.unlink(file.name)
-        execute([
-            "gh", "workflow", "run", WORKFLOW, "--ref", stable.CONTROLLER_BRANCH, "--repo", repository,
-            "--raw-field", f"tag={tag}",
-        ])
+        execute(stable.dispatch_command(tag, repository))
         run_url = _await_run(execute, repository, tag, wait=run_wait, sleep=sleep)
     except Exception as exc:
         raise ReleaseRefused(f"release {tag} never started: {exc}") from exc

@@ -19,7 +19,7 @@ from urllib.parse import unquote, urlsplit
 from hermes_cli.update_channel import STABLE_TAG_RE
 from scripts.releases import lanes as lane_set
 from scripts.releases.draft_warning import strip_draft_warning
-from scripts.releases.versioning import tag_record
+from scripts.releases.versioning import parse_attempt_ref, tag_record
 SHA = re.compile(r"[a-f0-9]{40}")
 DIGEST = re.compile(r"[a-f0-9]{64}")
 DESKTOP_TARGETS = ("windows/x64", "windows/arm64", "macos/x64", "macos/arm64")
@@ -62,8 +62,6 @@ def admit_claim(tag: str, commit: str, *, on_main) -> dict:
     it is on a release line: ``main`` or a ``release/*`` branch. ``on_main`` is
     that predicate; the name predates release branches.
     """
-    from scripts.releases.versioning import parse_attempt_ref
-
     parsed = parse_attempt_ref(tag)
     if parsed is None:
         raise ValueError(f"{tag} is not a claim tag")
@@ -703,6 +701,15 @@ def tagger_epoch(tag_object: str, run=output) -> int:
 CONTROLLER_BRANCH = "main"
 CONTROLLER_REF = f"refs/heads/{CONTROLLER_BRANCH}"
 CONTROLLER_WORKFLOW = "stable-release.yml"
+
+
+def dispatch_command(tag: str, repository: str) -> list[str]:
+    """Run Stable Release on a claim. Every kind dispatches the default-branch controller with the
+    claim tag as its only input; admission derives the policy from the tag."""
+    if parse_attempt_ref(tag) is None and not is_stamped_claim(tag):
+        raise ValueError(f"Not a release claim tag: {tag!r}")
+    return ["gh", "workflow", "run", CONTROLLER_WORKFLOW, "--ref", CONTROLLER_BRANCH, "--repo", repository,
+            "--raw-field", f"tag={tag}"]
 
 
 def claim_run_title(claim_tag: str) -> str:
