@@ -156,7 +156,7 @@ def test_a_canary_runs_the_stable_default_jobs_and_differs_only_in_publication()
     stable_default = lane_set.jobs_to_run(lane_set.DEFAULT, "stable")
     # The publication jobs that run under exactly one of the two policies.
     either = {job for job, policies in lane_set.POLICY_JOBS.items() if ("stable" in policies) != ("canary" in policies)}
-    assert either == {"publish-bundles", "publish-canary"}
+    assert either == {"publish-bundles", "publish-canary", "upgrade-arms"}
     assert {job for job in canary if canary[job] != stable_default[job]} == either
     upgrade = {job for job, needs in lane_set.JOB_LANES.items() if "upgrade" in needs}
     assert all(canary[job] == stable_default[job] for job in upgrade)
@@ -257,32 +257,67 @@ def test_a_commit_build_runs_the_default_jobs_but_upgrade_tests_and_publishes_no
 
 @pytest.mark.parametrize(("job", "policy", "lanes"), [("publish-canary", "canary", lane_set.CANARY),
                                                       ("publish-channel", "channel", lane_set.CHANNEL)])
-def test_preview_publication_requires_every_upgrade_arm_that_ran(job, policy, lanes):
-    from scripts.releases.stable import PACKAGED_BY
+def test_preview_publication_requires_every_upgrade_arm_that_ran(job, policy, lanes, tmp_path):
+    from scripts.releases import stable
 
-    publish = workflow("stable-release.yml")["jobs"][job]
-    assert publish["needs"] == ["admit", "candidate-manifest", "acceptance", *lane_set.UPGRADE_ARMS]
-    # Custody re-checks the arms from the same needs.
+    jobs = workflow("stable-release.yml")["jobs"]
+    publish, arms = jobs[job], jobs["upgrade-arms"]
+    # One gate judges the arms; the publication job needs it, not each arm.
+    assert set(direct_needs(jobs, "upgrade-arms")) == {"admit", *lane_set.UPGRADE_ARMS}
+    assert "upgrade-arms" in publish["needs"] and not set(lane_set.UPGRADE_ARMS) & set(publish["needs"])
+    gate_step = next(step for step in arms["steps"] if "stable gate" in step.get("run", ""))
+    assert gate_step["run"].split(" gate ", 1)[1].split() == list(lane_set.UPGRADE_ARMS)
+    # Custody re-checks the gate from the same needs.
     assert publish["env"]["RELEASE_NEEDS"] == "${{ toJSON(needs) }}"
-    admit = {"result": "success", "outputs": {"jobs": json.dumps(lane_set.jobs_to_run(lanes, policy)),
-                                              "policy": policy, "require-green": "false"}}
+    runs = lane_set.jobs_to_run(lanes, policy)
+    admit = {"result": "success", "outputs": {"jobs": json.dumps(runs), "policy": policy, "require-green": "false"}}
     accepted = {"admit": admit, "candidate-manifest": {"result": "success"}, "acceptance": {"result": "failure"},
-                **{arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS}}
-    # Whatever the green policy, every upgrade arm that ran (the last published build of the
-    # canary or of the claim's channel -> this one) must pass; an arm skipped because there is no
-    # baseline or its lane is off does not hold it.
+                "upgrade-arms": {"result": "success"}}
     assert gate(publish["if"], {}, accepted)
-    assert gate(publish["if"], {}, {**accepted, **{arm: {"result": "skipped"} for arm in PACKAGED_BY}})
-    for arm in lane_set.UPGRADE_ARMS:
-        for result in ("failure", "cancelled"):
-            assert not gate(publish["if"], {}, {**accepted, arm: {"result": result}}), (arm, result)
+    for result in ("failure", "skipped", "cancelled"):
+        assert not gate(publish["if"], {}, {**accepted, "upgrade-arms": {"result": result}}), result
+    # The gate runs to judge a failed or skipped arm rather than skipping with it.
+    assert runs["upgrade-arms"]
+    assert gate(arms["if"], {}, {"admit": admit, **{arm: {"result": "failure"} for arm in lane_set.UPGRADE_ARMS}})
+    # Whatever the green policy, every upgrade arm that ran (the last published build of the canary
+    # or of the claim's channel -> this one) must pass; an arm skipped because its lane is off or
+    # there is no baseline does not hold it.
+    expected = stable.gate_expectations(list(lane_set.UPGRADE_ARMS), lanes, policy)
+    env = {"LANES": json.dumps(lane_set.flags(lanes)), "POLICY": policy,
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")}
+    ran = {arm: {"result": result} for arm, result in expected.items()}
+
+    def judge(needs):
+        stable.main(["gate", *lane_set.UPGRADE_ARMS], {**env, "RELEASE_NEEDS": json.dumps(needs)})
+
+    judge(ran)
+    no_baseline = dict(ran)
+    for packaged, planner in stable.PACKAGED_BY.items():
+        if expected[packaged] == "success":
+            no_baseline |= {planner: {"result": "success", "outputs": {"baseline": "none"}},
+                            packaged: {"result": "skipped"}}
+    judge(no_baseline)
+    for arm in (arm for arm, result in expected.items() if result == "success"):
+        for result in ("failure", "cancelled", "skipped"):
+            with pytest.raises(ValueError, match=f"{arm}={result}"):
+                judge({**ran, arm: {"result": result}})
+
+
+def test_the_upgrade_arms_gate_holds_exactly_its_policies_publication():
+    """lanes.POLICY_JOBS names the policies the gate serves; each publication job of those policies,
+    and no other, needs it."""
+    jobs = workflow("stable-release.yml")["jobs"]
+    gated = lane_set.POLICY_JOBS["upgrade-arms"]
+    for name, policies in lane_set.POLICY_JOBS.items():
+        if name.startswith("publish-"):
+            assert ("upgrade-arms" in direct_needs(jobs, name)) == (policies <= gated), name
 
 
 def test_canary_publication_follows_its_claims_green_policy_and_never_touches_stable():
     jobs = workflow("stable-release.yml")["jobs"]
     canary = lane_set.jobs_to_run(lane_set.CANARY, "canary")
     publish = jobs["publish-canary"]
-    assert publish["needs"] == ["admit", "candidate-manifest", "acceptance", *lane_set.UPGRADE_ARMS]
+    assert publish["needs"] == ["admit", "candidate-manifest", "acceptance", "upgrade-arms"]
     # Custody re-reads the green policy from the claim itself, not from this run's admit output.
     assert "REQUIRE_GREEN" not in publish["env"]
     assert jobs["admit"]["outputs"]["require-green"] == "${{ steps.admit.outputs.require-green }}"
@@ -292,7 +327,7 @@ def test_canary_publication_follows_its_claims_green_policy_and_never_touches_st
         return {"result": "success", "outputs": {"jobs": json.dumps(canary), "policy": "canary",
                                                  "require-green": green}}
 
-    ran = {arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS}
+    ran = {"upgrade-arms": {"result": "success"}}
     for green, red_suite_publishes in (("false", True), ("true", False)):
         needs = {"admit": admit_with(green), "candidate-manifest": manifest, **ran}
         # Without require-green a red suite reports in the same run and does not hold the canary
@@ -369,7 +404,7 @@ def test_lane_inputs_reach_the_workflows_they_configure():
     desktop = workflow("desktop-bundled-release.yml")["jobs"]
     assert "inputs.skip-store" in desktop["stable-store"]["if"]
     assert {"lanes", "jobs"} <= set(jobs["admit"]["outputs"])
-    for name in ("acceptance", "publication", "complete"):
+    for name in ("acceptance", "upgrade-arms", "publication", "complete"):
         gate_step = next(step for step in jobs[name]["steps"]
                          if "scripts.releases.stable gate" in step.get("run", ""))
         assert gate_step["env"] == {"RELEASE_NEEDS": "${{ toJSON(needs) }}",

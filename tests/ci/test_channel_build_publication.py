@@ -9,7 +9,7 @@ import hermes_yaml
 import pytest
 
 from hermes_cli.release_channels import ChannelError, canonical_json
-from scripts.releases import channel_claims, lanes as lane_set
+from scripts.releases import channel_claims
 from tests.ci.desktop_release_roles import (
     DOWNLOADABLE_DISPATCHES, admitted, gate, native_builds, stage_step,
 )
@@ -102,7 +102,7 @@ def claim_publication(monkeypatch, tmp_path):
 
     monkeypatch.setattr(r2, "put", put)
     needs = {"admit": {"result": "success"}, "candidate-manifest": {"result": "success"},
-             "acceptance": {"result": "failure"}, **{arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS}}
+             "acceptance": {"result": "failure"}, "upgrade-arms": {"result": "success"}}
     return {"request": request, "store": store, "publisher": publisher, "seen": seen, "windows": windows,
             "claim": claim, "env": {"CANDIDATE_MANIFEST_SHA256": "c" * 64, "RELEASE_NEEDS": json.dumps(needs)},
             "root": tmp_path}
@@ -130,8 +130,8 @@ def test_publish_claim_refuses_other_bytes_other_versions_and_other_policies(cla
     run = claim_publication
     # Whatever its green policy, an upgrade arm that ran and failed holds the channel before any write.
     for result in ("failure", "cancelled"):
-        failed = json.dumps({**json.loads(run["env"]["RELEASE_NEEDS"]), "macos-packaged-arm64": {"result": result}})
-        with pytest.raises(ValueError, match=f"macos-packaged-arm64={result}"):
+        failed = json.dumps({**json.loads(run["env"]["RELEASE_NEEDS"]), "upgrade-arms": {"result": result}})
+        with pytest.raises(ValueError, match=f"upgrade-arms={result}"):
             channel_claims.publish_claim({**run["env"], "RELEASE_NEEDS": failed}, run["root"])
     # A claim that requires green waits for every suite (here acceptance is red), like a canary's.
     run["claim"]["require_green"] = True

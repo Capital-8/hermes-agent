@@ -7,7 +7,7 @@ import json
 import pytest
 
 from hermes_cli.release_channels import build_prefix, canonical_json
-from scripts.releases import channel_claims, lanes as lane_set, r2, stable
+from scripts.releases import channel_claims, r2, stable
 from tests.scripts.test_release_channels import _stage_accepted_native, object_server, publisher
 
 
@@ -46,7 +46,7 @@ def test_channel_publication_assembles_receipts_and_promotes_preview_over_http(t
         env = {'GITHUB_REPOSITORY': pub.repository, 'CHANNEL_BUILD': request['buildId'],
                'CHANNEL_REQUEST_SHA256': hashlib.sha256(canonical_json(request)).hexdigest(),
                'RELEASE_NEEDS': json.dumps({job: {'result': 'success'} for job in (
-                   'admit', 'candidate-manifest', *lane_set.UPGRADE_ARMS)})}
+                   'admit', 'candidate-manifest', 'upgrade-arms')})}
         # The next build's upgrade baseline is the channel head, read back over HTTP; the manifest
         # fetch alone reads the fixture's objects (read_manifest insists on HTTPS).
         monkeypatch.setattr(stable, 'read_manifest', lambda url, **_: json.loads(

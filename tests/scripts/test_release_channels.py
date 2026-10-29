@@ -712,7 +712,7 @@ def test_a_canary_advances_its_own_head_from_its_accepted_candidate_only(tmp_pat
                             lambda candidate, root, public_base: calls["promoted"].append(candidate))
         monkeypatch.setattr(channel_releases, "product_identity", lambda _tag: dict(identity))
         needs = {"admit": {"result": "success"}, "candidate-manifest": {"result": "success"},
-                 "acceptance": {"result": "failure"}, **{arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS}}
+                 "acceptance": {"result": "failure"}, "upgrade-arms": {"result": "success"}}
         env = {"GITHUB_REPOSITORY": pub.repository, "RELEASE_NEEDS": json.dumps(needs),
                "GITHUB_WORKFLOW_REF": f"{pub.repository}/.github/workflows/stable-release.yml@refs/heads/main"}
 

@@ -614,6 +614,30 @@ jobs:
           LANES: ${{ needs.admit.outputs.lanes }}
           POLICY: ${{ needs.admit.outputs.policy }}
 
+  upgrade-arms:
+    name: Every signed-package upgrade arm that ran passed
+    # The policies it gates are lanes.POLICY_JOBS's (canary and channel): whatever its green policy,
+    # such a build publishes only if each upgrade arm (the last published build of its kind -> this
+    # one) passed, or was skipped because its lane is off or there is no baseline. Its publication
+    # job needs this one job, and custody (stable.require_publication) re-requires it.
+    needs: [admit, transitions-darwin-arm64, transitions-darwin-x64, transitions-win32,
+            macos-packaged-arm64, macos-packaged-x64, windows-packaged]
+    if: >-
+      !cancelled() && needs.admit.result == 'success' && fromJSON(needs.admit.outputs.jobs)['upgrade-arms']
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a  # v1
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-pm
+        with:
+          cache-python: false
+      - run: python -m scripts.releases.stable gate transitions-darwin-arm64 transitions-darwin-x64 transitions-win32 macos-packaged-arm64 macos-packaged-x64 windows-packaged
+        env:
+          RELEASE_NEEDS: ${{ toJSON(needs) }}
+          LANES: ${{ needs.admit.outputs.lanes }}
+          POLICY: ${{ needs.admit.outputs.policy }}
+
   publish-docker:
     name: Publish tested Docker image
     # B5: this job pushes only the immutable attempt-ref image tags; the
@@ -660,22 +684,16 @@ jobs:
     # candidate pointer and the protected R2 canary head (channel_releases canary). Its claim
     # decides what it waits for: with require-green it publishes only once acceptance passes
     # (every suite green), like a stable release; without it, only the accepted candidate
-    # (built and smoked) and the signed-package upgrade arms gate it: each arm that ran
-    # (last published canary -> this one) passed, or was skipped (lane off, no baseline). A red
-    # suite reports without holding the canary back. The Store bundle is staged in the archive and
+    # (built and smoked) and the upgrade-arms gate hold it: each arm that ran (last published
+    # canary -> this one) passed, or was skipped (lane off, no baseline). A red suite reports
+    # without holding the canary back. The Store bundle is staged in the archive and
     # never submitted.
-    needs: [admit, candidate-manifest, acceptance, transitions-darwin-arm64, transitions-darwin-x64,
-            transitions-win32, macos-packaged-arm64, macos-packaged-x64, windows-packaged]
+    needs: [admit, candidate-manifest, acceptance, upgrade-arms]
     if: >-
       !cancelled() && fromJSON(needs.admit.outputs.jobs)['publish-canary']
       && needs.candidate-manifest.result == 'success'
       && (needs.admit.outputs.require-green != 'true' || needs.acceptance.result == 'success')
-      && contains(fromJSON('["success", "skipped"]'), needs.transitions-darwin-arm64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.transitions-darwin-x64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.transitions-win32.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.macos-packaged-arm64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.macos-packaged-x64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.windows-packaged.result)
+      && needs.upgrade-arms.result == 'success'
     runs-on: blacksmith-32vcpu-ubuntu-2404
     environment: release-signing
     timeout-minutes: 120
@@ -785,20 +803,14 @@ jobs:
     # releases/channel-builds/<id>/ and CASes the preview channel head
     # (scripts/releases/channel_claims.py publish). Never a stable or canary head, feed, Docker tag,
     # GitHub release or Store. With require-green it waits for every suite; without, for the
-    # accepted candidate and, like publish-canary, every upgrade arm that ran (its channel's head ->
-    # this build) passed or was skipped (lane off, no head yet).
-    needs: [admit, candidate-manifest, acceptance, transitions-darwin-arm64, transitions-darwin-x64,
-            transitions-win32, macos-packaged-arm64, macos-packaged-x64, windows-packaged]
+    # accepted candidate and, like publish-canary, the upgrade-arms gate (every arm that ran, its
+    # channel's head -> this build, passed or was skipped: lane off, no head yet).
+    needs: [admit, candidate-manifest, acceptance, upgrade-arms]
     if: >-
       !cancelled() && fromJSON(needs.admit.outputs.jobs)['publish-channel']
       && needs.candidate-manifest.result == 'success'
       && (needs.admit.outputs.require-green != 'true' || needs.acceptance.result == 'success')
-      && contains(fromJSON('["success", "skipped"]'), needs.transitions-darwin-arm64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.transitions-darwin-x64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.transitions-win32.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.macos-packaged-arm64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.macos-packaged-x64.result)
-      && contains(fromJSON('["success", "skipped"]'), needs.windows-packaged.result)
+      && needs.upgrade-arms.result == 'success'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: release-signing
     permissions:

@@ -86,28 +86,23 @@ def test_gate_requires_every_success_including_real_cli(tmp_path):
 def test_preview_publication_custody_follows_the_claims_green_policy(policy):
     """publish-canary and publish-channel custody (stable.require_publication) reads the green policy
     from the claim, never from a workflow flag."""
-    from scripts.releases.stable import PACKAGED_BY, require_publication
+    from scripts.releases.stable import require_publication
 
     needs = {"admit": {"result": "success"}, "candidate-manifest": {"result": "success"},
-             "acceptance": {"result": "failure"}, **{arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS}}
+             "acceptance": {"result": "failure"}, "upgrade-arms": {"result": "success"}}
     relaxed, green = {"policy": policy, "require_green": False}, {"policy": policy, "require_green": True}
     # Without require-green a red suite never holds publication; with it, acceptance must pass.
     require_publication(needs, relaxed)
     with pytest.raises(ValueError, match="acceptance=failure"):
         require_publication(needs, green)
     require_publication({**needs, "acceptance": {"result": "success"}}, green)
-    # The accepted candidate and admission hold it whatever the claim says.
-    for job in ("admit", "candidate-manifest"):
-        for result in ("failure", "skipped", "cancelled"):
+    # Admission, the accepted candidate and the upgrade-arms gate hold it whatever the claim says.
+    for job in ("admit", "candidate-manifest", "upgrade-arms"):
+        for result in ("failure", "skipped", "cancelled", "missing"):
+            red = {**needs, job: {"result": result}} if result != "missing" else \
+                {name: row for name, row in needs.items() if name != job}
             with pytest.raises(ValueError, match=f"{job}={result}"):
-                require_publication({**needs, job: {"result": result}}, relaxed)
-    # An upgrade arm that ran must pass even then; one skipped (no baseline, lane off) does not block.
-    require_publication({**needs, **{arm: {"result": "skipped"} for arm in PACKAGED_BY}}, relaxed)
-    for result in ("failure", "cancelled", "missing"):
-        red = {**needs, "windows-packaged": {"result": result}} if result != "missing" else \
-            {name: row for name, row in needs.items() if name != "windows-packaged"}
-        with pytest.raises(ValueError, match=f"windows-packaged={result}"):
-            require_publication(red, relaxed)
+                require_publication(red, relaxed)
 
 
 @pytest.mark.parametrize("lanes", [
@@ -570,8 +565,10 @@ def test_a_default_claim_builds_no_macos_intel_or_termux_and_lanes_restore_them(
         tmp_path, r2_server, https_origin, monkeypatch):
     from scripts.releases import stable
 
-    # A stable release never runs a canary's, commit build's or channel build's publication job.
-    others = {"publish-canary", "publish-commit", "publish-channel"}
+    # A stable release never runs another policy's job (a canary's, commit build's or channel build's
+    # publication, or the upgrade-arms gate they need).
+    others = {job for job, policies in lane_set.POLICY_JOBS.items() if "stable" not in policies}
+    assert {"publish-canary", "publish-commit", "publish-channel", "upgrade-arms"} == others
     off = {"candidates-darwin-x64", "transitions-darwin-x64", "macos-packaged-x64",
            "candidates-termux", "termux-checks", *others}
     required = ["admit", *lane_set.JOB_LANES]

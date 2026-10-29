@@ -192,18 +192,16 @@ def require_success(needs: dict, required: list[str], allowed: tuple[str, ...] =
         raise ValueError("Release blocked: " + ", ".join(failures))
 
 
-def require_upgrade_arms(needs: dict) -> None:
-    """Whatever its green policy, a canary or channel build publishes only if every signed-package
-    upgrade arm that ran passed; one its lanes or a missing baseline left out was skipped."""
-    require_success(needs, list(lane_set.UPGRADE_ARMS), allowed=("success", "skipped"))
-
-
 def require_publication(needs: dict, claim: dict) -> None:
     """Custody of a canary or channel publication job, judged by its claim (never a workflow flag):
     admission and the accepted candidate always, acceptance (every suite) when the claim requires
-    green, and every upgrade arm that ran."""
-    require_success(needs, ["admit", "candidate-manifest", *(["acceptance"] if claim["require_green"] else [])])
-    require_upgrade_arms(needs)
+    green, and the upgrade-arms gate for the policies it gates (lanes.POLICY_JOBS)."""
+    required = ["admit", "candidate-manifest"]
+    if claim["require_green"]:
+        required.append("acceptance")
+    if claim["policy"] in lane_set.POLICY_JOBS["upgrade-arms"]:
+        required.append("upgrade-arms")
+    require_success(needs, required)
 
 
 # Each signed-package upgrade arm and the transitions job that plans it.
