@@ -235,8 +235,8 @@ def test_canary_packages_upgrade_in_claim_stamp_order():
         target = f"{platform}/{arch}"
         row = stable._transition_row(target, left, right)
         assert row["transition"]["old"]["tag"] == PREVIOUS and row["transition"]["new"]["tag"] == CANARY
-        # Consecutive canaries share X.Y.Z; an equal or older stamp is no upgrade.
-        with pytest.raises(ValueError, match="increase"):
+        # Consecutive canaries share X.Y.Z; the same claim is the same build, an older stamp no upgrade.
+        with pytest.raises(ValueError, match="change the build"):
             stable._transition_row(target, left, {**left, "commit": COMMIT, "artifact": {**left["artifact"], "sha256": "3" * 64}})
         with pytest.raises(ValueError, match="increase"):
             stable._transition_row(target, {**right, "commit": "c" * 40}, {**left, "commit": COMMIT})

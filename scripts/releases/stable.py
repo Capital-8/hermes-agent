@@ -398,7 +398,10 @@ def windows_version(value: str) -> tuple[int, ...]:
 
 
 def _transition_row(target: str, left: dict, right: dict) -> dict:
-    if left["identity"] != right["identity"] or left["commit"] == right["commit"] or left["artifact"]["sha256"] == right["artifact"]["sha256"]:
+    # A stamped claim (canary, channel) is a new build whenever its claim is: a channel may rebuild
+    # its head's own commit. A stable release is a new build only on a new commit.
+    same = left["tag"] == right["tag"] if is_stamped_claim(right["tag"]) else left["commit"] == right["commit"]
+    if left["identity"] != right["identity"] or same or left["artifact"]["sha256"] == right["artifact"]["sha256"]:
         raise ValueError("Update must preserve package identity and change the build")
     if right["platform"] == "windows":
         if (left["publisher"], left["applicationId"]) != (right["publisher"], right["applicationId"]):

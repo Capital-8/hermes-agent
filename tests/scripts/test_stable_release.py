@@ -1341,6 +1341,109 @@ def test_missing_baseline_plans_no_upgrade_arm_but_a_missing_supplied_one_blocks
         stable.main(["transitions"], env)
 
 
+def channel_candidates(tag, commit, targets=("macos/x64", "macos/arm64", "windows/x64", "windows/arm64")):
+    """A channel claim's candidate manifest: its claim is its payload tag and its archive, and its
+    versions come from the claim stamp."""
+    from scripts.releases.stable import payload_version, stamped_epoch, stamped_windows_version
+
+    windows = stamped_windows_version(tag)
+    packages = []
+    for target in targets:
+        platform, arch = target.split("/")
+        packages.append({
+            "platform": platform, "arch": arch, "tag": tag, "commit": commit, "identity": "channel.review",
+            "version": windows if platform == "windows" else payload_version(tag),
+            **({"executableVersion": windows, "publisher": "CN=Test", "applicationId": "App"}
+               if platform == "windows" else {"teamId": "ABCDEFGHIJ"}),
+            "artifact": {"sha256": hashlib.sha256(f"{tag} {target}".encode()).hexdigest(),
+                         "url": f"{BASE}/releases/tag/{tag}/{arch}" + (".msixbundle" if platform == "windows" else ".zip")},
+        })
+    return {"schema": 2, "tag": tag, "commit": commit, "releaseEpoch": stamped_epoch(tag), "archive": tag,
+            "packages": packages, "smoke_results": {name: {"result": "success"} for name in (
+                "smoke-darwin-arm64", "smoke-darwin-x64", "smoke-win32-arm64", "smoke-win32-x64")}}
+
+
+CHANNEL_HEAD = "channel.20261028T120000Z-v1.2.3"
+CHANNEL_NEXT = "channel.20261029T120000Z-v1.2.3"
+
+
+@pytest.mark.parametrize("commit", ["b" * 40, "a" * 40], ids=["new commit", "the head's own commit"])
+@pytest.mark.parametrize(("receipt", "platform", "arches"), [("darwin-arm64", "macos", ["arm64"]),
+                                                             ("win32-bundle", "windows", ["x64", "arm64"])])
+def test_a_channel_build_upgrades_its_channels_head_end_to_end(tmp_path, monkeypatch, commit, receipt,
+                                                               platform, arches):
+    """transitions() for a channel claim: OLD is the build its channel's head serves, NEW is this
+    claim's receipt, and the acceptance manifests land in this claim's archive. A rebuild of the
+    head's own commit is still a new build (a later claim with other bytes), so it upgrades too."""
+    from hermes_cli import release_channels
+    from scripts.releases import r2, stable
+
+    head = channel_candidates(CHANNEL_HEAD, "a" * 40)
+    targets = stable.RECEIPT_TARGETS[receipt]
+    objects = {f"releases/tag/{CHANNEL_HEAD}/release-candidates.json": head,
+               f"releases/tag/{CHANNEL_NEXT}/{receipt}-receipt.json":
+                   {k: v for k, v in channel_candidates(CHANNEL_NEXT, commit, targets).items() if k != "smoke_results"}}
+
+    def read_manifest(url, expected_hash=None, *, expected_origin=None, opener=None):
+        body = objects[url.removeprefix(BASE + "/")]
+        assert expected_hash in (None, hashlib.sha256(json.dumps(body).encode()).hexdigest())
+        return body
+
+    def put(*, tag, key, file, immutable):
+        objects[f"releases/tag/{tag}/{key}"] = json.loads(Path(file).read_text(encoding="utf-8"))
+
+    head_manifest = {"request": {"releaseTag": CHANNEL_HEAD}, "packages": []}
+    monkeypatch.setattr(release_channels.ChannelReader, "resolve",
+                        lambda self, name: type("Resolution", (), {"manifest": head_manifest})())
+    monkeypatch.setattr(stable, "read_manifest", read_manifest)
+    monkeypatch.setattr(r2, "put", put)
+    monkeypatch.setattr(stable, "stable_context", lambda env: (CHANNEL_NEXT, commit, {
+        "claim_tag": CHANNEL_NEXT, "policy": "channel", "channel": "review"}))
+    # The head serves exactly the packages its claim's candidate accepted (match_accepted_packages).
+    monkeypatch.setattr("scripts.releases.channel_releases.match_accepted_packages", lambda manifest, accepted: None)
+    (tmp_path / "runner").mkdir()
+    receipt_key = f"releases/tag/{CHANNEL_NEXT}/{receipt}-receipt.json"
+    env = {"RECEIPT": receipt, "RECEIPT_URL": f"{BASE}/{receipt_key}", "GITHUB_REPOSITORY": "example/project",
+           "RECEIPT_SHA256": hashlib.sha256(json.dumps(objects[receipt_key]).encode()).hexdigest(),
+           "CLOUDFLARE_R2_PUBLIC_URL": BASE, "RUNNER_TEMP": str(tmp_path / "runner"),
+           "GITHUB_OUTPUT": str(tmp_path / "output")}
+    stable.main(["transitions"], env)
+    emitted = dict(line.split("=", 1) for line in (tmp_path / "output").read_text(encoding="utf-8").splitlines())
+    assert emitted["baseline"] == "published"
+    rows = json.loads(emitted[platform])["include"]
+    assert [row["arch"] for row in rows] == arches and all(row["old"] == CHANNEL_HEAD for row in rows)
+    for row in rows:
+        assert row["manifest"].startswith(f"{BASE}/releases/tag/{CHANNEL_NEXT}/acceptance-")
+        transition = objects[row["manifest"].removeprefix(BASE + "/")]
+        assert (transition["old"]["tag"], transition["new"]["tag"]) == (CHANNEL_HEAD, CHANNEL_NEXT)
+
+
+def test_a_channel_head_upgrades_only_to_a_later_build():
+    from scripts.releases.stable import plan_transitions
+
+    head = channel_candidates(CHANNEL_HEAD, "a" * 40)
+    with pytest.raises(ValueError, match="change the build"):
+        plan_transitions(head, head, BASE)
+    with pytest.raises(ValueError, match="must increase"):
+        plan_transitions(head, channel_candidates("channel.20261027T120000Z-v1.2.3", "b" * 40), BASE)
+
+
+@pytest.mark.parametrize("head_tag", [None, "v1.2.3", "canary.20261028T120000Z-v1.2.3",
+                                      "commit.20261028T120000Z-v1.2.3"])
+def test_a_channel_whose_head_is_not_a_channel_claim_has_no_baseline(monkeypatch, head_tag):
+    """No head yet, or a head that is not a channel claim (an older receipt-tagged build), leaves no
+    OLD package: the upgrade arms skip rather than pair this build with another kind's."""
+    from hermes_cli import release_channels
+    from scripts.releases import stable
+
+    manifest = None if head_tag is None else {"request": {"releaseTag": head_tag}, "packages": []}
+    monkeypatch.setattr(release_channels.ChannelReader, "resolve",
+                        lambda self, name: type("Resolution", (), {"manifest": manifest})())
+    monkeypatch.setattr(stable, "read_manifest", lambda *a, **k: pytest.fail("no candidate manifest to read"))
+    claim = {"policy": "channel", "channel": "review", "claim_tag": CHANNEL_NEXT}
+    assert stable._published_baseline({"GITHUB_REPOSITORY": "example/project"}, BASE, claim) is None
+
+
 def test_gate_excuses_an_upgrade_arm_only_for_its_planners_no_baseline_output():
     from scripts.releases.stable import PACKAGED_BY, require_gate
 
