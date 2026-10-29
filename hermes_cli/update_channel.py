@@ -58,11 +58,11 @@ CHANNEL_CANARY = "canary"
 _VERSION_CORE = r"(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
 _CANARY_TAG_RE = re.compile(rf"^canary\.(?P<stamp>20\d{{6}}T\d{{6}}Z)-v(?P<core>{_VERSION_CORE})$")
 # A commit build's claim tag: the same shape with the ``commit`` kind --
-# ``commit.<YYYYMMDDTHHMMSSZ>-v<pyproject version at the commit>``. The tag points at the built
+# ``commit.<YYYYMMDDTHHMMSSZ>-v<newest stable release the commit descends from>``. The tag points at the built
 # commit (any pushed commit, not only main's), and its version is ``<core>+commit.<stamp>``. Commit
 # builds publish nowhere and their installs refuse updates (install stamp ``source: commit-build``).
 _COMMIT_TAG_RE = re.compile(rf"^commit\.(?P<stamp>20\d{{6}}T\d{{6}}Z)-v(?P<core>{_VERSION_CORE})$")
-# A channel build's claim tag: ``channel.<YYYYMMDDTHHMMSSZ>-v<pyproject version at the commit>``.
+# A channel build's claim tag: ``channel.<YYYYMMDDTHHMMSSZ>-v<newest stable release behind the commit>``.
 # The channel name, branding and bundle defaults live in the annotated claim. Desktop packages use the
 # admitted request's identity and the claim's version (<core>+channel.<stamp>); native Windows
 # versions derive from that claim's timestamp, not the channel allocation sequence.
