@@ -156,10 +156,12 @@ place that says what runs. A recovery rerun cannot change it. To change a lane,
 The gates stay strict. `scripts.releases.stable gate` reads the lanes and
 requires each job they remove to report `skipped`, and every other gated job to
 report `success`. A job that ran although a lane removes it also blocks the
-release. A claim cut before lanes existed (`skipBundles`, `skipTests`,
-`includeMacosIntel`, `includeTermux`) reads as the lane set that gated the same
-jobs. A claim without `lanesRevision` was cut when `windows` also meant the Store
-bundle, so its `windows` reads as `windows` plus `windows-store`.
+release. Admission and the sequencer read a claim only in the current shape:
+`lanes` with `lanesRevision` 2. Older attempts (`skipBundles`/`skipTests` claims,
+or `lanes` without a revision) are finished history: the sequencer checks only
+their identity (version, attempt, commit, `claimEpoch`), and their records carry
+no lanes, so nothing advances a channel or resubmits the Store from them. An
+unfinished attempt in an older shape is refused; `abandon` it and cut again.
 
 What a release publishes follows what it built:
 
