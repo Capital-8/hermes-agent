@@ -698,12 +698,6 @@ def claim_run_title(claim_tag: str) -> str:
     return f"Stable release {claim_tag}"
 
 
-def is_claim_run(*, title: str | None, head_branch: str | None, head_sha: str | None,
-                 claim_tag: str, commit: str) -> bool:
-    """A Stable Release run for this claim. Runs started before the controller moved sat on the tag."""
-    return title == claim_run_title(claim_tag) or (head_branch == claim_tag and head_sha == commit)
-
-
 def check_controller(env: dict) -> None:
     """Require the default-branch dispatch of Stable Release.
 

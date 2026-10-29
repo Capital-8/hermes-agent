@@ -65,7 +65,6 @@ def canary_repo(tmp_path, monkeypatch, release_repo):
             if release.get_last_canary_tag() in published else None
         ),
     )
-    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     return git, remote, calls
 
 

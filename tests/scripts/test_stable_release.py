@@ -415,22 +415,10 @@ CONTROLLER_ENV = {
 }
 
 
-def test_a_claim_run_is_found_by_its_run_name_on_main_or_by_its_tag_branch():
-    from scripts.releases.stable import claim_run_title, is_claim_run
+def test_a_claim_run_is_named_by_its_claim():
+    from scripts.releases.stable import claim_run_title
 
-    tag, commit = "rc.1-v1.2.3", "a" * 40
-    assert claim_run_title(tag) == "Stable release rc.1-v1.2.3"
-
-    def match(**row):
-        return is_claim_run(**{"title": None, "head_branch": "main", "head_sha": "e" * 40, **row},
-                            claim_tag=tag, commit=commit)
-
-    assert match(title="Stable release rc.1-v1.2.3")
-    # Runs started before the controller moved sat on the tag at the claim commit.
-    assert match(head_branch=tag, head_sha=commit)
-    assert not match(title="Stable release rc.2-v1.2.3")
-    assert not match(head_branch=tag, head_sha="e" * 40)
-    assert not match()
+    assert claim_run_title("rc.1-v1.2.3") == "Stable release rc.1-v1.2.3"
 
 
 def test_claim_must_run_from_the_default_branch_controller():

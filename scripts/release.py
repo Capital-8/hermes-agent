@@ -543,14 +543,6 @@ def cmd_canary(args) -> None:
     changelog_file.write_text(changelog, encoding="utf-8")
     _resume_canary(tag_name, push_remote, gh_repo, notes_file=changelog_file)
     changelog_file.unlink(missing_ok=True)
-    # Record the tag for any workflow step that wants it. release.py
-    # starts the build itself, so nothing consumes this today; it stays
-    # because a step output is the cheap, conventional handle for "which
-    # tag did this run cut".
-    github_output = os.environ.get("GITHUB_OUTPUT")
-    if github_output:
-        with open(github_output, "a", encoding="utf-8") as f:
-            f.write(f"tag={tag_name}\n")
 
 
 def _canary_date(tag: str) -> str | None:
