@@ -164,7 +164,7 @@ def test_admission_needs_no_github_release_and_emits_the_commit_policy(tmp_path,
     monkeypatch.setattr(stable, "output", lambda argv: pytest.fail(f"a commit build asked {argv}"))
     stable.admit(env)
     outputs = dict(line.split("=", 1) for line in out.read_text(encoding="utf-8").splitlines())
-    assert outputs["policy"] == "commit" and outputs["release-id"] == "" and outputs["docker-tag"] == TAG
+    assert outputs["policy"] == "commit" and outputs["release-id"] == "" and outputs["claim-tag"] == TAG
     assert json.loads(outputs["bundle-env"]) == {"HERMES_PREVIEW_FULL_CONNECTORS": "1"}
     jobs = json.loads(outputs["jobs"])
     assert jobs["publish-commit"] and not any(jobs[name] for name in (
@@ -195,10 +195,9 @@ def test_a_commit_claim_is_versioned_from_its_stamp_like_a_canary():
     assert stable.release_windows_version(TAG, None) == stable.stamped_windows_version(TAG) == "26.1026.18.0"
     assert stable.payload_version(TAG) == VERSION
     stable.require_release_identity(TAG, COMMIT)
-    # The canary-only helpers stay canary-only.
-    for helper in (stable.canary_epoch, stable.canary_windows_version):
-        with pytest.raises(ValueError, match="canary"):
-            helper(TAG)
+    for helper in (stable.stamped_epoch, stable.stamped_windows_version):
+        with pytest.raises(ValueError, match="Not a stamped claim"):
+            helper("rc.1-v1.2.3")
 
 
 def test_package_provenance_binds_a_commit_claim_to_a_commit_build_stamp():
