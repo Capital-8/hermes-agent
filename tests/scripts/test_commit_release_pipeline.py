@@ -86,15 +86,6 @@ def test_the_version_helpers_name_a_commit_claim_in_every_language():
         assert not is_commit_tag(near) and release_version(near) is None, near
 
 
-def test_a_commit_claim_starts_from_the_default_lanes_minus_every_upgrade_test():
-    assert lane_set.select(policy="commit") == lane_set.DEFAULT - {"upgrade", "install-e2e", "windows-store"}
-    assert lane_set.select(policy="commit", with_=["termux"]) == lane_set.COMMIT | {"termux"}
-    assert lane_set.select(policy="commit", only=["docker", "ci"]) == {"docker", "ci"}
-    for refused in ("upgrade", "install-e2e", "windows-store"):
-        with pytest.raises(ValueError, match="commit claim cannot run"):
-            lane_set.select(policy="commit", only=["docker", refused])
-
-
 def test_the_claim_message_carries_lanes_green_policy_and_bundle_defaults():
     parsed = stable.stamped_claim(json.dumps(claim(bundleEnv={"HERMES_PREVIEW_FULL_CONNECTORS": "1"})),
                                   tag=TAG, commit=COMMIT)

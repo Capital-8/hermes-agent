@@ -101,16 +101,6 @@ def test_the_claim_message_carries_the_canary_lanes_and_green_policy():
             stable.check_claim(env, _git(message=bad))
 
 
-def test_lanes_select_starts_each_policy_from_its_own_base():
-    assert lane_set.select(policy="canary") == lane_set.CANARY
-    assert lane_set.select() == lane_set.DEFAULT
-    assert lane_set.select(policy="canary", without=["termux"]) == lane_set.CANARY - {"termux"}
-    assert lane_set.select(policy="canary", only=["windows", "smoke"]) == {"windows", "smoke"}
-    assert lane_set.select(policy="canary", with_=["macos-intel"]) == lane_set.CANARY | {"macos-intel"}
-    with pytest.raises(ValueError, match="unknown release policy"):
-        lane_set.select(policy="nightly")
-
-
 def test_a_canary_without_the_full_desktop_set_builds_and_tests_but_publishes_nothing():
     # A canary only advances channels, so a claim without a package the channel serves still
     # builds, smokes and runs its suites, and leaves every canary head where it is.

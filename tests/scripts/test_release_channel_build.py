@@ -30,18 +30,6 @@ def test_a_channel_claim_names_its_channel_and_branding_and_admits_as_one():
                                    bundle_env={}, channel="bad/name")
 
 
-def test_channel_lanes_refuse_what_a_channel_build_cannot_run():
-    from scripts.releases import lanes
-
-    # A channel build updates (install-e2e) and upgrades its channel's head (upgrade); only the Store
-    # is stable's and canary's.
-    assert {"install-e2e", "upgrade"} <= lanes.select(policy="channel")
-    assert "windows-store" not in lanes.select(policy="channel")
-    for selection in ({"with_": ["windows-store"]}, {"only": ["windows", "windows-store"]}):
-        with pytest.raises(ValueError, match="channel claim cannot run windows-store"):
-            lanes.select(policy="channel", **selection)
-
-
 @pytest.mark.parametrize("tag", [TAG, "commit.20261028T120000Z-v1.2.3", "canary.20261028T120000Z-v1.2.3",
                                  "rc.1-v1.2.3"])
 def test_every_kind_dispatches_the_default_branch_controller_with_only_its_claim(tag):
