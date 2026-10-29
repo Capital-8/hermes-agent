@@ -198,6 +198,14 @@ def require_upgrade_arms(needs: dict) -> None:
     require_success(needs, list(lane_set.UPGRADE_ARMS), allowed=("success", "skipped"))
 
 
+def require_publication(needs: dict, claim: dict) -> None:
+    """Custody of a canary or channel publication job, judged by its claim (never a workflow flag):
+    admission and the accepted candidate always, acceptance (every suite) when the claim requires
+    green, and every upgrade arm that ran."""
+    require_success(needs, ["admit", "candidate-manifest", *(["acceptance"] if claim["require_green"] else [])])
+    require_upgrade_arms(needs)
+
+
 # Each signed-package upgrade arm and the transitions job that plans it.
 PACKAGED_BY = {"macos-packaged-arm64": "transitions-darwin-arm64",
                "macos-packaged-x64": "transitions-darwin-x64",

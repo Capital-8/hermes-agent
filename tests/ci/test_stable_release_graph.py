@@ -283,8 +283,8 @@ def test_canary_publication_follows_its_claims_green_policy_and_never_touches_st
     canary = lane_set.jobs_to_run(lane_set.CANARY, "canary")
     publish = jobs["publish-canary"]
     assert publish["needs"] == ["admit", "candidate-manifest", "acceptance", *lane_set.UPGRADE_ARMS]
-    # Custody re-checks the same flag the job's `if` reads.
-    assert publish["env"]["REQUIRE_GREEN"] == "${{ needs.admit.outputs.require-green }}"
+    # Custody re-reads the green policy from the claim itself, not from this run's admit output.
+    assert "REQUIRE_GREEN" not in publish["env"]
     assert jobs["admit"]["outputs"]["require-green"] == "${{ steps.admit.outputs.require-green }}"
     manifest = {"result": "success"}
 

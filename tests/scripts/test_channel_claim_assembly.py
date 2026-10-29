@@ -38,14 +38,15 @@ def test_channel_publication_assembles_receipts_and_promotes_preview_over_http(t
         # request validation, native assembly, package matching and head CAS are production code.
         monkeypatch.setattr(stable, 'check_claim', lambda env: {
             'policy': 'channel', 'claim_tag': tag, 'commit': request['commit'],
-            'channel': request['channel'], 'bundle_env': {}})
+            'channel': request['channel'], 'bundle_env': {}, 'require_green': False})
         monkeypatch.setattr(stable, 'read_admitted_candidate', lambda *args, **kwargs: accepted)
         monkeypatch.setattr(r2, 'credentials', lambda: (pub.store.creds, url, 'bucket'))
         monkeypatch.setattr(r2, 'public_base_url', lambda: pub.public_base)
         monkeypatch.setenv('CLOUDFLARE_R2_PUBLIC_URL', pub.public_base)
         env = {'GITHUB_REPOSITORY': pub.repository, 'CHANNEL_BUILD': request['buildId'],
                'CHANNEL_REQUEST_SHA256': hashlib.sha256(canonical_json(request)).hexdigest(),
-               'RELEASE_NEEDS': json.dumps({arm: {'result': 'success'} for arm in lane_set.UPGRADE_ARMS})}
+               'RELEASE_NEEDS': json.dumps({job: {'result': 'success'} for job in (
+                   'admit', 'candidate-manifest', *lane_set.UPGRADE_ARMS)})}
         # The next build's upgrade baseline is the channel head, read back over HTTP; the manifest
         # fetch alone reads the fixture's objects (read_manifest insists on HTTPS).
         monkeypatch.setattr(stable, 'read_manifest', lambda url, **_: json.loads(

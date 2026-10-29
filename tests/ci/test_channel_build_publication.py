@@ -69,8 +69,8 @@ def claim_publication(monkeypatch, tmp_path):
     publisher = Publisher(store)
     feed = tmp_path / "darwin" / "stable-mac.yml"
     seen = {"put": []}
-    monkeypatch.setattr(stable, "check_claim", lambda env: {"policy": env.get("POLICY", "channel"),
-                                                           "claim_tag": CLAIM, "commit": SHA, "channel": "preview"})
+    claim = {"claim_tag": CLAIM, "commit": SHA, "channel": "preview", "require_green": False}
+    monkeypatch.setattr(stable, "check_claim", lambda env: {**claim, "policy": env.get("POLICY", "channel")})
     monkeypatch.setattr(channel_claims, "require_admitted_request", lambda tag, claim, env: request)
 
     def make_publisher(env, actions):
@@ -101,9 +101,10 @@ def claim_publication(monkeypatch, tmp_path):
         store.put(key, Path(file).read_bytes())
 
     monkeypatch.setattr(r2, "put", put)
+    needs = {"admit": {"result": "success"}, "candidate-manifest": {"result": "success"},
+             "acceptance": {"result": "failure"}, **{arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS}}
     return {"request": request, "store": store, "publisher": publisher, "seen": seen, "windows": windows,
-            "env": {"CANDIDATE_MANIFEST_SHA256": "c" * 64,
-                    "RELEASE_NEEDS": json.dumps({arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS})},
+            "claim": claim, "env": {"CANDIDATE_MANIFEST_SHA256": "c" * 64, "RELEASE_NEEDS": json.dumps(needs)},
             "root": tmp_path}
 
 
@@ -132,6 +133,11 @@ def test_publish_claim_refuses_other_bytes_other_versions_and_other_policies(cla
         failed = json.dumps({**json.loads(run["env"]["RELEASE_NEEDS"]), "macos-packaged-arm64": {"result": result}})
         with pytest.raises(ValueError, match=f"macos-packaged-arm64={result}"):
             channel_claims.publish_claim({**run["env"], "RELEASE_NEEDS": failed}, run["root"])
+    # A claim that requires green waits for every suite (here acceptance is red), like a canary's.
+    run["claim"]["require_green"] = True
+    with pytest.raises(ValueError, match="acceptance=failure"):
+        channel_claims.publish_claim(run["env"], run["root"])
+    run["claim"]["require_green"] = False
     assert run["seen"]["put"] == [] and run["store"].objects == {}
     prefix = "releases/channel-builds/" + "b" * 32 + "/"
     run["store"].put(prefix + "build.json", b"someone else's manifest")

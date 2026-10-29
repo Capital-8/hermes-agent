@@ -82,6 +82,34 @@ def test_gate_requires_every_success_including_real_cli(tmp_path):
     assert "publication=cancelled" in result.stderr
 
 
+@pytest.mark.parametrize("policy", ["canary", "channel"])
+def test_preview_publication_custody_follows_the_claims_green_policy(policy):
+    """publish-canary and publish-channel custody (stable.require_publication) reads the green policy
+    from the claim, never from a workflow flag."""
+    from scripts.releases.stable import PACKAGED_BY, require_publication
+
+    needs = {"admit": {"result": "success"}, "candidate-manifest": {"result": "success"},
+             "acceptance": {"result": "failure"}, **{arm: {"result": "success"} for arm in lane_set.UPGRADE_ARMS}}
+    relaxed, green = {"policy": policy, "require_green": False}, {"policy": policy, "require_green": True}
+    # Without require-green a red suite never holds publication; with it, acceptance must pass.
+    require_publication(needs, relaxed)
+    with pytest.raises(ValueError, match="acceptance=failure"):
+        require_publication(needs, green)
+    require_publication({**needs, "acceptance": {"result": "success"}}, green)
+    # The accepted candidate and admission hold it whatever the claim says.
+    for job in ("admit", "candidate-manifest"):
+        for result in ("failure", "skipped", "cancelled"):
+            with pytest.raises(ValueError, match=f"{job}={result}"):
+                require_publication({**needs, job: {"result": result}}, relaxed)
+    # An upgrade arm that ran must pass even then; one skipped (no baseline, lane off) does not block.
+    require_publication({**needs, **{arm: {"result": "skipped"} for arm in PACKAGED_BY}}, relaxed)
+    for result in ("failure", "cancelled", "missing"):
+        red = {**needs, "windows-packaged": {"result": result}} if result != "missing" else \
+            {name: row for name, row in needs.items() if name != "windows-packaged"}
+        with pytest.raises(ValueError, match=f"windows-packaged={result}"):
+            require_publication(red, relaxed)
+
+
 @pytest.mark.parametrize("lanes", [
     lane_set.select(without=lane_set.BUNDLES),
     lane_set.select(without=lane_set.NAMES[5:]),
