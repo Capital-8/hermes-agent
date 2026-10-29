@@ -4,11 +4,10 @@ import pytest
 from scripts.releases.job_groups import ALL_JOBS, JOB_GROUPS, parse_jobs, phase_jobs
 
 
-def test_the_default_selects_every_group():
-    for raw in (None, ALL_JOBS):
-        selected = parse_jobs(raw)
-        assert set(selected) == set(JOB_GROUPS)
-        assert all(selected.values())
+def test_every_group_selects_every_group():
+    selected = parse_jobs(ALL_JOBS)
+    assert set(selected) == set(JOB_GROUPS)
+    assert all(selected.values())
 
 
 def test_one_group_selects_only_itself():
@@ -73,16 +72,11 @@ def test_the_bundle_call_owns_the_msix_smokes():
         assert phase_jobs(bundle, "candidate", **skip) == [
             "validate", "assemble-win32-bundle"], skip
 
-@pytest.mark.parametrize("jobs, expected", [(None, "true"), ("termux", "false"),
-                                            ("darwin-arm64,darwin-x64", "false")])
-def test_admission_emits_all_jobs_only_for_a_full_selection(monkeypatch, capsys, jobs, expected):
+
+def test_admission_emits_one_switch_per_group(monkeypatch, capsys):
     from scripts.releases import job_groups
 
-    if jobs is None:
-        monkeypatch.delenv("JOBS", raising=False)
-    else:
-        monkeypatch.setenv("JOBS", jobs)
+    monkeypatch.setenv("JOBS", "darwin-arm64,termux")
     job_groups.main()
     lines = dict(line.split("=", 1) for line in capsys.readouterr().out.splitlines())
-    assert lines["all-jobs"] == expected
-    assert set(lines) == {*job_groups.JOB_GROUPS, "all-jobs"}
+    assert lines == {**{group: "false" for group in JOB_GROUPS}, "darwin-arm64": "true", "termux": "true"}

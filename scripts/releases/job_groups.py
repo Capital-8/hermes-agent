@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import os
 
-JOB_GROUPS = ("darwin-arm64", "darwin-x64", "win32-arm64", "win32-x64",
-              "win32-bundle", "linux-x64", "linux-arm64", "termux")
+JOB_GROUPS = ("darwin-arm64", "darwin-x64", "win32-arm64", "win32-x64", "win32-bundle", "termux")
 ALL_JOBS = ",".join(JOB_GROUPS)
 
 # The workflow jobs each group runs, in the names desktop-bundled-release.yml
@@ -36,14 +35,12 @@ GROUP_SMOKES = {
 # The groups whose smokes install the signed MSIX.
 SIGNED_WINDOWS_GROUPS = frozenset({"win32-arm64", "win32-x64", "win32-bundle"})
 
-def parse_jobs(raw: str | None) -> dict[str, bool]:
-    """Select job groups from a comma-separated list. ``None`` is the default.
+def parse_jobs(raw: str) -> dict[str, bool]:
+    """Select job groups from a comma-separated list.
 
     An unknown name, a duplicate, an empty entry and an explicitly empty list
     are refused; admission then fails before any build starts.
     """
-    if raw is None:
-        return {group: True for group in JOB_GROUPS}
     names = [name.strip() for name in raw.split(",")]
     if not any(names):
         raise ValueError(f"jobs must name at least one group: {ALL_JOBS}")
@@ -82,11 +79,10 @@ def phase_jobs(selected: dict[str, bool], phase: str, *, skip_tests: bool = Fals
     return required
 
 def main() -> None:
-    """Emit one `<group>=true|false` line per group, and `all-jobs`, for `$GITHUB_OUTPUT`."""
-    selected = parse_jobs(os.environ.get("JOBS"))
+    """Emit one `<group>=true|false` line per group for `$GITHUB_OUTPUT`."""
+    selected = parse_jobs(os.environ["JOBS"])
     for group in JOB_GROUPS:
         print(f"{group}={'true' if selected[group] else 'false'}")
-    print(f"all-jobs={'true' if all(selected.values()) else 'false'}")
 
 
 if __name__ == "__main__":
