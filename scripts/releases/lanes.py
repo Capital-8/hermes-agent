@@ -135,9 +135,8 @@ POLICY_JOBS: dict[str, frozenset[str]] = {
     "upgrade-arms": frozenset({"canary", "channel"}),
 }
 # The lane set a claim of each policy starts from, and the lanes it can never run: a canary runs
-# whatever stable can (see CANARY); a commit build
-# runs no upgrade test and builds no Store package (see COMMIT); a channel build runs no signed
-# upgrade arm and builds no Store package (see CHANNEL).
+# whatever stable can (see CANARY); a commit build runs no upgrade test and builds no Store package
+# (see COMMIT); a channel build builds no Store package (see CHANNEL).
 POLICY_BASE = {"stable": DEFAULT, "canary": CANARY, "commit": COMMIT, "channel": CHANNEL}
 POLICY_REFUSED = {"stable": frozenset(), "canary": frozenset(), "commit": COMMIT_REFUSED,
                   "channel": CHANNEL_REFUSED}

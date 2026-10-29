@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Exact annotated claim tag (rc.N-vX.Y.Z), or a canary tag (canary.<stamp>-vX.Y.Z). Admission resolves it to the commit under test
+        description: Exact annotated claim tag (rc.N-vX.Y.Z, canary.<stamp>-vX.Y.Z, commit.<stamp>-vX.Y.Z or channel.<stamp>-vX.Y.Z). Admission resolves it to the commit under test
         required: true
         type: string
       baseline-manifest:
@@ -41,8 +41,8 @@ permissions:
 # PR-controlled code and must stay secret-free.
 # A canary takes hours; it must never queue a stable release behind it, nor share the stable
 # publication reconciler's lock.
-# Commit builds publish nowhere and never share state, so each runs on its own (its claim tag is
-# the group).
+# Commit and channel builds share no state with a release (a channel build moves only its own
+# channel, through the channel CAS), so each runs on its own: its claim tag is the group.
 concurrency:
   group: ${{ startsWith(inputs.tag, 'canary.') && 'canary-release-pipeline' || (startsWith(inputs.tag, 'commit.') || startsWith(inputs.tag, 'channel.')) && inputs.tag || 'stable-release' }}
   cancel-in-progress: false
@@ -78,7 +78,8 @@ jobs:
       lanes: ${{ steps.admit.outputs.lanes }}
       jobs: ${{ steps.admit.outputs.jobs }}
       # Whether the policy's publication job also waits for acceptance (every suite green).
-      # Always true for a stable release; a canary claim chooses (release.py --[no-]require-green).
+      # Always true for a stable release; a canary, commit or channel claim chooses
+      # (release.py --[no-]require-green).
       require-green: ${{ steps.admit.outputs.require-green }}
       # A commit or channel build's baked bundle defaults (its claim's bundleEnv); `{}` for every
       # release. Each candidate call passes it on and its validate re-checks it against the claim.
