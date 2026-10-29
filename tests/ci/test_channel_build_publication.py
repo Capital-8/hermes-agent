@@ -151,6 +151,44 @@ def test_publish_claim_refuses_other_bytes_other_versions_and_other_policies(cla
     assert run["publisher"].promoted == []
 
 
+def test_channel_claims_create_allocate_and_promote_only_preview_channels(monkeypatch):
+    """Admission may create and allocate, publish-channel may only promote, and neither ever acts on
+    a protected (stable or canary) channel."""
+    from scripts.releases import r2
+
+    monkeypatch.setattr(r2, "credentials", lambda: ({}, "https://r2.example", "bucket"))
+    monkeypatch.setenv("CLOUDFLARE_R2_PUBLIC_URL", "https://archive.example")
+    env = {"GITHUB_REPOSITORY": "example/hermes-agent"}
+    for publisher, allowed in ((channel_claims._publisher(env), {"create", "allocate"}),
+                               (channel_claims._publisher(env, frozenset({"promote"})), {"promote"})):
+        for action in ("create", "allocate", "promote", "bootstrap"):
+            if action in allowed:
+                publisher.authorize(action, {"policy": "preview"})
+            else:
+                with pytest.raises(ValueError, match=f"may not {action} on a preview channel"):
+                    publisher.authorize(action, {"policy": "preview"})
+            for policy in ("stable-release", "canary-release"):
+                with pytest.raises(ValueError, match=f"may not {action} on a {policy} channel"):
+                    publisher.authorize(action, {"policy": policy})
+
+
+@pytest.mark.parametrize("policy", ["stable", "canary", "commit"])
+def test_only_a_channel_claims_legs_build_a_channel_request(monkeypatch, tmp_path, policy):
+    from scripts.releases import stable
+
+    claim_tag = "rc.1-v1.2.3" if policy == "stable" else f"{policy}.20261028T120000Z-v1.2.3"
+    tag = "v1.2.3" if policy == "stable" else claim_tag
+    monkeypatch.setattr(stable, "check_claim", lambda env, run=None: {
+        "policy": policy, "tag": tag, "claim_tag": claim_tag, "commit": SHA, "claim_epoch": 1, "bundle_env": {}})
+    env = {"RELEASE_TAG": tag, "BUNDLE_ENV_JSON": "{}", "GITHUB_OUTPUT": str(tmp_path / "output")}
+    for request in ({"CHANNEL_BUILD": "b" * 32}, {"CHANNEL_REQUEST_SHA256": "c" * 64}):
+        with pytest.raises(ValueError, match="Only a channel claim builds a channel request"):
+            stable.verify({**env, **request})
+    assert not (tmp_path / "output").exists()
+    stable.verify(env)
+    assert f"channel={policy}" in (tmp_path / "output").read_text(encoding="utf-8")
+
+
 def test_admission_probes_cas_and_public_readback_on_the_real_channel():
     from hermes_cli.release_channels import channel_key
 

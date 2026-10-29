@@ -395,6 +395,20 @@ def test_only_a_stable_claim_reaches_the_store_submission(policy):
                     {"validate": {"result": "success"}})
 
 
+@pytest.mark.parametrize("policy", lane_set.POLICIES)
+def test_each_policy_titles_its_run_and_takes_its_own_concurrency_group(policy):
+    """The run is titled by the claim's kind (stable keeps the title the sequencer and the publication
+    reconciler match). Stable and canary each queue on one lock; a commit or channel claim runs on its
+    own, never queued behind a release."""
+    release = workflow("stable-release.yml")
+    claim = CLAIMS[policy]
+    prefix, rest = release["run-name"].split(" release ", 1)
+    assert rest == "${{ inputs.tag }}"
+    assert evaluate(prefix, {"tag": claim}, {}) == policy.capitalize()
+    group = evaluate(release["concurrency"]["group"], {"tag": claim}, {})
+    assert group == {"stable": "stable-release", "canary": "canary-release-pipeline"}.get(policy, claim)
+
+
 def test_lane_inputs_reach_the_workflows_they_configure():
     jobs = workflow("stable-release.yml")["jobs"]
     # Tests the image and the candidates run for themselves follow their own lane.

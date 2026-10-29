@@ -105,21 +105,22 @@ def test_preview_publication_custody_follows_the_claims_green_policy(policy):
                 require_publication(red, relaxed)
 
 
+@pytest.mark.parametrize("policy", lane_set.POLICIES)
 @pytest.mark.parametrize("lanes", [
     lane_set.select(without=lane_set.BUNDLES),
     lane_set.select(without=lane_set.NAMES[5:]),
     lane_set.select(only=["windows", "docker"]),
     lane_set.select(only=[]),
 ])
-def test_gate_requires_every_lane_removed_job_to_have_skipped(tmp_path, lanes):
+def test_gate_requires_every_lane_removed_job_to_have_skipped(tmp_path, lanes, policy):
     required = ["admit", *lane_set.JOB_LANES]
-    expected = gate_expectations(required, lanes)
+    expected = gate_expectations(required, lanes, policy)
     # Lanes never remove admission.
     assert expected["admit"] == "success"
     assert {name for name, result in expected.items() if result == "success"} - {"admit"} == \
-        {job for job, runs in lane_set.jobs_to_run(lanes).items() if runs}
+        {job for job, runs in lane_set.jobs_to_run(lanes, policy).items() if runs}
     needs = {name: {"result": result} for name, result in expected.items()}
-    env = {**os.environ, "RELEASE_NEEDS": json.dumps(needs), "PYTHONPATH": str(ROOT),
+    env = {**os.environ, "RELEASE_NEEDS": json.dumps(needs), "PYTHONPATH": str(ROOT), "POLICY": policy,
            "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"), "LANES": json.dumps(lane_set.flags(lanes))}
     argv = [sys.executable, "-m", "scripts.releases.stable", "gate", *required]
     assert subprocess.run(argv, cwd=tmp_path, env=env, capture_output=True, check=False).returncode == 0
@@ -129,6 +130,10 @@ def test_gate_requires_every_lane_removed_job_to_have_skipped(tmp_path, lanes):
     ran = subprocess.run(argv, cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", check=False)
     assert ran.returncode != 0 and f"{removed}=success (expected skipped)" in ran.stderr
     env["RELEASE_NEEDS"] = json.dumps(needs)
+    # The same results judged under a policy that expects other jobs block it too.
+    other = next(other for other in lane_set.POLICIES if gate_expectations(required, lanes, other) != expected)
+    assert subprocess.run(argv, cwd=tmp_path, env={**env, "POLICY": other}, capture_output=True,
+                          check=False).returncode != 0
     env["LANES"] = json.dumps(lane_set.flags(lane_set.NAMES))
     assert subprocess.run(argv, cwd=tmp_path, env=env, capture_output=True, check=False).returncode != 0
     del env["LANES"]
