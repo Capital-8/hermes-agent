@@ -1219,6 +1219,10 @@ def _stage_termux_handoff(built):
     handoff.stage(ATTEMPT, RECEIPT_COMMIT, "termux", built, ["deb/*", metadata.name])
 
 
+# The pointer the last published stable release writes (channel_releases).
+STABLE_BASELINE = "releases/stable/release-candidates.json"
+
+
 def _local_baseline(base):
     """The published previous stable, keyed to the fixture's HTTPS origin."""
     baseline = candidates("v1.2.2", "9" * 40, "3" * 64)
@@ -1233,7 +1237,6 @@ def _transitions_env(tmp_path, base, receipt, url, digest):
     return {"RECEIPT": receipt, "RECEIPT_URL": url, "RECEIPT_SHA256": digest,
             "RELEASE_TAG": "v1.2.3", "RELEASE_CLAIM_TAG": ATTEMPT,
             "RELEASE_CLAIM_OBJECT": "0" * 40,
-            "BASELINE_MANIFEST_URL": f"{base}/baseline.json",
             "CLOUDFLARE_R2_PUBLIC_URL": base,
             "RUNNER_TEMP": str(tmp_path / "runner-temp"),
             "GITHUB_OUTPUT": str(tmp_path / "output"),
@@ -1272,7 +1275,7 @@ def test_transitions_from_one_darwin_receipt_emit_one_macos_row(tmp_path, r2_ser
 
     url, digest = _staged_receipt(tmp_path, r2_server, https_origin, monkeypatch, "darwin-arm64")
     baseline = _local_baseline(https_origin.base)
-    https_origin.store["baseline.json"] = (json.dumps(baseline).encode(), '"e"')
+    https_origin.store[STABLE_BASELINE] = (json.dumps(baseline).encode(), '"e"')
     monkeypatch.setattr(stable, "output", lambda argv: json.dumps(
         {"tagName": baseline["tag"], "isDraft": False, "isPrerelease": False}))
     stable.main(["transitions"], _transitions_env(tmp_path, https_origin.base,
@@ -1293,7 +1296,7 @@ def test_transitions_from_the_bundle_receipt_emit_two_windows_rows(tmp_path, r2_
 
     url, digest = _staged_receipt(tmp_path, r2_server, https_origin, monkeypatch, "win32-bundle")
     baseline = _local_baseline(https_origin.base)
-    https_origin.store["baseline.json"] = (json.dumps(baseline).encode(), '"e"')
+    https_origin.store[STABLE_BASELINE] = (json.dumps(baseline).encode(), '"e"')
     monkeypatch.setattr(stable, "output", lambda argv: json.dumps(
         {"tagName": baseline["tag"], "isDraft": False, "isPrerelease": False}))
     stable.main(["transitions"], _transitions_env(tmp_path, https_origin.base,
@@ -1319,7 +1322,7 @@ def test_an_intel_receipt_upgrades_only_from_a_baseline_that_built_intel(tmp_pat
     monkeypatch.setattr(stable, "output", lambda argv: json.dumps(
         {"tagName": full["tag"], "isDraft": False, "isPrerelease": False}))
     for baseline, arches, planned in ((lean, [], "none"), (full, ["x64"], "published")):
-        https_origin.store["baseline.json"] = (json.dumps(baseline).encode(), '"e"')
+        https_origin.store[STABLE_BASELINE] = (json.dumps(baseline).encode(), '"e"')
         (tmp_path / "output").unlink(missing_ok=True)
         stable.main(["transitions"], _transitions_env(tmp_path, https_origin.base, "darwin-x64", url, digest))
         emitted = dict(line.split("=", 1)
@@ -1329,21 +1332,15 @@ def test_an_intel_receipt_upgrades_only_from_a_baseline_that_built_intel(tmp_pat
         assert json.loads(emitted["windows"]) == {"include": []}
 
 
-def test_missing_baseline_plans_no_upgrade_arm_but_a_missing_supplied_one_blocks(
-        tmp_path, r2_server, https_origin, monkeypatch):
+def test_missing_baseline_plans_no_upgrade_arm(tmp_path, r2_server, https_origin, monkeypatch):
     from scripts.releases import stable
 
     url, digest = _staged_receipt(tmp_path, r2_server, https_origin, monkeypatch, "darwin-arm64")
-    env = {**_transitions_env(tmp_path, https_origin.base, "darwin-arm64", url, digest),
-           "BASELINE_MANIFEST_URL": ""}
-    stable.main(["transitions"], env)
+    stable.main(["transitions"], _transitions_env(tmp_path, https_origin.base, "darwin-arm64", url, digest))
     emitted = dict(line.split("=", 1)
                    for line in (tmp_path / "output").read_text(encoding="utf-8").splitlines())
     assert emitted["baseline"] == "none"
     assert json.loads(emitted["macos"]) == json.loads(emitted["windows"]) == {"include": []}
-    env["BASELINE_MANIFEST_URL"] = f"{https_origin.base}/baseline.json"
-    with pytest.raises(ValueError, match="supplied baseline-manifest does not exist"):
-        stable.main(["transitions"], env)
 
 
 def channel_candidates(tag, commit, targets=("macos/x64", "macos/arm64", "windows/x64", "windows/arm64")):

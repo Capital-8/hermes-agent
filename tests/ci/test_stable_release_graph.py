@@ -500,8 +500,7 @@ def test_claim_custody_and_final_payload_identity_reach_every_privileged_phase()
     release = workflow("stable-release.yml")
     jobs = release["jobs"]
     # The claim is the one record of the attempt's policy; a dispatch cannot override it.
-    inputs = set(release["on"]["workflow_dispatch"]["inputs"])
-    assert not {"autopublish", "lanes", "skip-bundles", "skip-tests"}.intersection(inputs)
+    assert set(release["on"]["workflow_dispatch"]["inputs"]) == {"tag"}
     assert {"claim-tag", "claim-object", "tag", "commit", "version", "release-id", "release-epoch"} <= \
         set(jobs["admit"]["outputs"])
     for name in ("publish-bundles", *("candidates-darwin-arm64", "candidates-darwin-x64",

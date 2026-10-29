@@ -1016,13 +1016,10 @@ def _published_baseline(env: dict, base: str, claim: dict) -> dict | None:
     if policy == "channel":
         return _channel_baseline(env, base, claim["channel"])
     try:
-        previous = read_manifest(env.get("BASELINE_MANIFEST_URL") or f"{base}/releases/{policy}/release-candidates.json",
-                                 expected_origin=base)
+        previous = read_manifest(f"{base}/releases/{policy}/release-candidates.json", expected_origin=base)
     except urllib.error.HTTPError as error:
         if error.code != 404:
             raise
-        if env.get("BASELINE_MANIFEST_URL"):
-            raise ValueError("The supplied baseline-manifest does not exist") from error
         return None
     published = json.loads(output(["gh", "release", "view", previous["tag"], "--repo", env["GITHUB_REPOSITORY"], "--json", "tagName,isDraft,isPrerelease"]))
     canary = policy == "canary"
