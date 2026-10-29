@@ -421,6 +421,25 @@ def test_a_finished_legacy_claim_in_history_does_not_break_discovery():
 _SHAPE_REFUSAL = "rc.1-v0.21.7 metadata is invalid: Stable claim metadata is invalid: it must record lanes at lanesRevision 2"
 
 
+def test_a_legacy_release_above_the_head_is_never_advanced_without_lanes():
+    """lanes: None is history only: if the head somehow sits below a pre-lanes release, the pass
+    refuses to guess which channels it moves rather than advancing them."""
+    from scripts.releases.sequencer import reconcile
+
+    commit = "a" * 40
+    tags = {
+        "rc.2-v0.21.6": ("1" * 40, commit, _legacy_claim_message("0.21.6", 2, commit)),
+        "v0.21.6": ("4" * 40, commit, _final_message("0.21.6", 2, commit, release_id=7)),
+    }
+    releases = [{"id": 7, "tag_name": "v0.21.6", "draft": False, "prerelease": False,
+                 "published_at": "2026-09-01T00:00:00Z"}]
+    with pytest.raises(ValueError) as refused:
+        reconcile({"GITHUB_REPOSITORY": "example/project"}, run=_discover_run(tags, releases=releases),
+                  read_head=lambda: "0.21.5", read_archive=lambda _key: pytest.fail("read an archive"))
+    assert str(refused.value) == ("rc.2-v0.21.6 records no lanes at lanesRevision 2; its release cannot be "
+                                  "published or advance a channel")
+
+
 @pytest.mark.parametrize("message,refusal", [
     (_legacy_claim_message("0.21.7", 1, "a" * 40), _SHAPE_REFUSAL),
     # lanes without lanesRevision: cut when "windows" also meant the Store bundle.

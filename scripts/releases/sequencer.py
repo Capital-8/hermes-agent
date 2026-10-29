@@ -244,6 +244,14 @@ def _claim_lanes(claim: dict, claim_tag: str, *, version: str, attempt: int, com
         raise ValueError(f"{claim_tag} metadata is invalid: {error}") from error
 
 
+def _require_lanes(record: dict) -> dict:
+    """A record the pass is about to publish or advance needs its lanes (finished history may not)."""
+    if record["lanes"] is None:
+        raise ValueError(f"{record['claim_tag']} records no lanes at lanesRevision "
+                         f"{lane_set.LANES_REVISION}; its release cannot be published or advance a channel")
+    return record
+
+
 def discover(repository: str, run=output) -> list[dict]:
     """Derive every stable claim state from remote refs and GitHub objects."""
     from scripts.releases.stable import claim_identity, claim_run_title, tagger_epoch, validate_final
@@ -481,9 +489,7 @@ def reconcile(env: dict, *, run=output, read_head=None, advance_head=None,
     production = advance_head is None
     if production:
         def production_advance(record: dict) -> None:
-            if record["lanes"] is None:
-                raise ValueError(f"{record['claim_tag']} records no lanes at lanesRevision "
-                                 f"{lane_set.LANES_REVISION}; its release cannot advance a channel")
+            _require_lanes(record)
             if lane_set.advances_desktop(record["lanes"]):
                 log(f"Advancing the protected desktop channel to {record['version']} from "
                     f"releases/tag/{record['claim_tag']}/ "
@@ -506,7 +512,7 @@ def reconcile(env: dict, *, run=output, read_head=None, advance_head=None,
 
     for number, step in enumerate(steps, start=1):
         if "flip" in step:
-            record = by_version[step["flip"]]
+            record = _require_lanes(by_version[step["flip"]])
             with group(f"[{number}/{len(steps)}] Publish {record['version']}: write {record['tag']}, "
                        f"retarget release {record['release_id']} from {record['claim_tag']}, make it public"):
                 # discover() ran before the receipt tag existed, so the record has no
