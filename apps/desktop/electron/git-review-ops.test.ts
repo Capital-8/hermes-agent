@@ -145,7 +145,7 @@ test('gitFor status never rewrites the index (no optional index.lock)', async ()
   assert.deepEqual(fs.readFileSync(index), before)
 
   // Control: the same stale tree makes a plain `git status` rewrite the index.
-  execFileSync('git', ['status', '--porcelain'], { cwd: dir })
+  execFileSync('git', ['status', '--porcelain'], { cwd: dir, env: { ...process.env, GIT_OPTIONAL_LOCKS: '1' } })
   assert.notDeepEqual(fs.readFileSync(index), before)
 })
 
