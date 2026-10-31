@@ -127,6 +127,7 @@ class TestHelperFunctions(unittest.TestCase):
             _strip_html("The token is &amp;lt;APIKEY&amp;gt;"),
             "The token is &lt;APIKEY&gt;",
         )
+        self.assertEqual(_strip_html("<p>Don&#39;t &rsquo;&nbsp;&quot;x&quot;</p>"), "Don't \u2019 \"x\"")
 
 
 class TestExtractTextBody(unittest.TestCase):
