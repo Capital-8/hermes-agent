@@ -308,6 +308,7 @@ import {
   resolveRequestedPathForIpc,
   resolveTimeoutMs,
   SAFE_STORAGE_ENCODING,
+  setSensitiveHermesHome,
   TEXT_PREVIEW_SOURCE_MAX_BYTES,
   tightenSecretFileMode,
   writeSecretFileAtomic
@@ -1261,6 +1262,8 @@ const HERMES_HOME: string = resolveDesktopHermesHome({
   directoryExists,
   readWindowsHome: (): string | null => readWindowsUserEnvVar('HERMES_HOME')
 })
+
+setSensitiveHermesHome(HERMES_HOME)
 
 // #77311: `desktop.electron_flags` and the renderer heap ceiling
 // (`desktop.renderer_max_old_space_mb`) used to reach Chromium only through
