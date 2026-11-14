@@ -21,12 +21,54 @@ _TARGET_RE = re.compile(
 )
 _TERMINATOR = r"(?=[\s;&|)`'\"]|$)"
 _SCRIPT_INTERPRETERS_RE = r"python[0-9.]*+|perl|ruby|node|php"
+_PIPE_PATH_PREFIX_RE = r"(?>(?:[a-zA-Z]:)?(?:[.\w~-]*+[/\\])*+)"
+# Launchers that run their trailing words as a command, with the short/long options that take a
+# SEPARATE value word. One shared table made a bare flag (`time -p`, `exec -a x`) swallow the shell
+# name as its value; per-launcher rows let `-p` be bare for time/command and valued for sudo.
+_PIPE_LAUNCHER_VALUE_FLAGS = {
+    "sudo": ("ugUCDhpRrtT", ("user", "group", "other-user", "close-from", "chdir", "host", "prompt",
+                             "role", "type", "command-timeout", "chroot")),
+    "doas": ("uC", ()),
+    # `-S STRING` is the command itself (split into words), never a swallowed value.
+    "env": ("uCa", ("unset", "chdir", "argv0")),
+    "exec": ("a", ()),
+    "command": ("", ()),
+    "nohup": ("", ()),
+    "nice": ("n", ("adjustment",)),
+    "time": ("fo", ("format", "output")),
+    "timeout": ("sk", ("signal", "kill-after")),
+    "stdbuf": ("ioe", ("input", "output", "error")),
+    "busybox": ("", ()),
+    "setsid": ("", ()),
+    "ionice": ("cnpPu", ("class", "classdata", "pid", "pgid", "uid")),
+}
+
+
+def _pipe_launcher_re(name: str, short: str, long_opts: tuple, ws: str = r"\s") -> str:
+    valued = [rf"(?-i:-[^\W{short}\d-]*+[{short}]){ws}++[^\s|;&<>]++"] if short else []
+    valued += [rf"--(?:{'|'.join(long_opts)}){ws}++[^\s|;&<>]++"] if long_opts else []
+    duration = r"(?:infinity|\d++(?:\.\d++)?(?:e\d++)?|\.\d++)[smhd]?(?=\s)"
+    args = "|".join([*valued, r"-[^\s|;&<>]++", r"\w++=[^\s|;&<>]*+", duration])
+    return rf"{name}(?:{ws}++(?>{args}))*+"
+
+
+def _launcher_wrappers_re(ws: str) -> str:
+    launchers = "|".join(_pipe_launcher_re(n, *f, ws) for n, f in _PIPE_LAUNCHER_VALUE_FLAGS.items())
+    return rf"(?>{_PIPE_PATH_PREFIX_RE}(?:{launchers}){ws}++)*+"
+
+
+_PIPE_WRAPPERS_RE = _launcher_wrappers_re(r"\s")
+# The run matcher never crosses a newline: `command -v bash` and `bash job.sh` on two lines are two commands.
+_H = r"[^\S\n]"
+_LINE_WRAPPERS_RE = _launcher_wrappers_re(_H)
 # Syntax-check-only runs parse FILE without running it: every flag must be the check flag
 # (`bash -n f`, `sh -xn f`, `node --check f`, `ruby -wc f`, `php -l f`). `perl -c` is not one: it runs
 # BEGIN/use blocks.
 _SHELL_CHECK_FLAG = r"-[vx]*+n[nvx]*+"
 _CHECK_ONLY_FLAGS = {"node": r"-c|--check", "ruby": r"-w?c[cw]*+", "php": r"-l"}
 # curl -O / --remote-name saves under the URL's basename, not an operand: `curl -fsSLO URL`.
+# `command -v`/`-V` only looks the name up (`&& command -v tool` after installing tool).
+_LOOKUP_ONLY_RE = re.compile(r"\bcommand(?:\s+-[a-uw-zA-UW-Z]+)*\s+-[a-zA-Z]*[vV]", re.IGNORECASE)
 _CURL_REMOTE_NAME_RE = re.compile(r"\s(?:-([A-Za-z]++)|--remote-name(?:-all)?)(?=\s|$)")
 _URL_RE = re.compile(r"(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*+://[^\s;&|<>'\"`()]++", re.IGNORECASE)
 
@@ -41,12 +83,13 @@ class DownloadThenRunMatcher:
 
     def __init__(self, shell_names_re: str, writer_re: re.Pattern = _FETCH_RE):
         self._writer_re = writer_re
-        # Launchers and script interpreters run FILE too (`env bash f`, `nohup sh f`, `python3 f`).
+        # A command starts after a list/pipe operator or `(`, past `{`, `!`, compound
+        # keywords and `VAR=value` words. Launchers (shared with the pipe sink: path-qualified, valued
+        # options such as `sudo -u USER`, `timeout 60`), script interpreters and `shell < FILE` run FILE too.
         self._run_re = re.compile(
-            # `command -v`/`-V` only looks the name up (`&& command -v tool` after installing tool).
-            r"(?:;|&&|\|\||\n)\s*+(?:(?:sudo|env|exec|nohup|command(?!(?:\s+-[a-uw-zA-UW-Z]+)*\s+-[a-zA-Z]*[vV]))"
-            r"\s++(?:-\S++\s++|\w++=\S*+\s++)*+)*+"
-            rf"(?:(?:/(?:usr/(?:local/)?)?bin/)?(?P<tool>{shell_names_re}|{_SCRIPT_INTERPRETERS_RE})\s++(?P<flags>(?:-\S++[^\S\n]++)*+)|(?:source|\.)\s++)?"
+            rf"[;&|\n(]\s*+(?:(?:[{{!]|if|then|do|else|elif|while|until){_H}++)*+(?:\w++=\S*+{_H}++)*+"
+            rf"{_LINE_WRAPPERS_RE}(?:{_PIPE_PATH_PREFIX_RE}(?P<tool>{shell_names_re}|{_SCRIPT_INTERPRETERS_RE}){_H}++"
+            rf"(?P<flags>(?:-\S++{_H}++)*+)(?:<{_H}*+)?|(?:source|\.){_H}++)?"
             rf"['\"]?(?:\./)?(?P<file>[^\s;&|<>'\"`()]++){_TERMINATOR}",
             re.IGNORECASE,
         )
@@ -76,7 +119,8 @@ class DownloadThenRunMatcher:
         if not targets:
             return None
         for run in self._run_re.finditer(text, min(targets.values())):
-            if run.start() >= targets.get(_base(run.group("file")), len(text)) and not self._syntax_check_only(run):
+            if run.start() >= targets.get(_base(run.group("file")), len(text)) and not self._syntax_check_only(run) \
+                    and not _LOOKUP_ONLY_RE.search(run.group()):
                 return run
         return None
 
