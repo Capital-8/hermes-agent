@@ -16,6 +16,7 @@ import unicodedata
 from tools import approval_parser_budget as _parser_budget
 from tools.approval_parser_budget import _scan_backtick_end, _scan_dollar_paren_end, _scan_shell
 from tools.approval_ansi_c import _is_shell_comment_start, expand_ansi_c_quotes
+from tools.approval_fetch_exec import DownloadThenRunMatcher
 from tools.approval_home_fold import _rewrite_resolved_hermes_home, _rewrite_resolved_user_home
 from tools.approval_env_split import _split_env_string
 from tools.shell_heredoc import mask_heredoc_bodies_for_shell_scan
@@ -321,6 +322,7 @@ _PIPE_BARE_SINK_RE = re.compile(rf"\|\s*(?:[/\w]*/)?(?:{_SHELL_NAMES_RE})(?:\s|$
 
 
 _WMIC_SHADOW_DELETE_DESCRIPTION = "delete volume shadow copies (wmic)"
+_DOWNLOAD_THEN_RUN_DESCRIPTION = "execute a just-downloaded file"
 _WMIC_DELETE_IN_SEGMENT_RE = re.compile(r"\sshadowcopy\b.*\sdelete\b", re.IGNORECASE | re.DOTALL)
 # Leading switches of a carrier before its script: cmd /s /q /c, start /b "title", pwsh -NoProfile
 # -ExecutionPolicy Bypass -Command, doas -u x, ssh -i k -p 22 host. Option values are taken only for
@@ -527,7 +529,7 @@ def _detect_hardline_command(command: str) -> tuple:
     # (`\"` -> `"`), so a shell-valid pattern like `grep -o "[^\"]*"` lexed as unterminated and was
     # reported as a hardline block (118 of 125 hardline blocks in one week of real use, every one a
     # benign grep). Only quoted newlines are masked: they are data, and masking keeps quoting intact.
-    scan_command = expand_ansi_c_quotes(mask_heredoc_bodies_for_shell_scan(command))
+    scan_command = expand_ansi_c_quotes(mask_heredoc_bodies_for_shell_scan(command, code_consumers=False))
     _, malformed_grep = _grep_safe_detection_variant(_mask_quoted_newlines(scan_command))
     if malformed_grep:
         return (True, _MALFORMED_EXEC_DESCRIPTION)
@@ -717,13 +719,10 @@ DANGEROUS_PATTERNS = [
     (_CMDPOS + r'(?:source|\.)\s+<\s*\(\s*(curl|wget)\b', "execute remote script via process substitution"),
     # eval/source/. $(curl ...) — equivalent to piping remote content to a shell.
     (r'(?:\beval\b|\bsource\b|\.)\s*["\']?(?:\$\(\s*|`\s*)(?:curl|wget)\b', "execute remote content via command substitution"),
-    # Same-command download-then-run: the fetch writes FILE (-o/-O/--output/>), a later command in
-    # the same string runs that FILE (via a shell, source/., or directly). Cross-call download then
-    # exec is out of reach of a stateless detector.
-    (r'\b(?:curl|wget)\b[^\n;&|]*?(?:\s-[a-z]*o\s*|\s--output(?:-document)?(?:=|\s+)|>\s*)'
-     r'(?P<dl>[^\s;&|<>\'"`()]+)[^\n]*?(?:;|&&|\|\||\n)\s*(?:sudo\s+)?'
-     rf'(?:(?:{_SHELL_NAMES_RE})\s+(?:-\S+\s+)*|(?:source|\.)\s+)?(?:\./)?(?P=dl)(?=[\s;&|)`]|$)',
-     "execute a just-downloaded file"),
+    # Not compiled: DANGEROUS_PATTERNS_COMPILED swaps in DownloadThenRunMatcher (linear two-step
+    # match, tools/approval_fetch_exec.py); the string only feeds the legacy approval-key alias.
+    (r'\b(?:curl|wget)\b.*(?:\s-[a-z]*o|--output|>).*(?:;|&&|\|\||\n)',
+     _DOWNLOAD_THEN_RUN_DESCRIPTION),
     # Reverse shells (parity with Skills Guard's network rows). Not compiled: DANGEROUS_PATTERNS_COMPILED swaps in
     # _DevSocketRedirectMatcher, which dequotes the redirect operand; nc/socat are command-position anchored; a glued `<`/`>` redirect still ends the command word.
     (r'[<>]&?\s*/dev/(?:tcp|udp)/', _DEV_TCP_REDIRECT_DESCRIPTION),
@@ -937,6 +936,7 @@ _CUSTOM_MATCHERS = {
     _PIPE_REMOTE_TO_SHELL_DESCRIPTION: _PipeRemoteToShellMatcher,
     _WMIC_SHADOW_DELETE_DESCRIPTION: _WmicShadowDeleteMatcher,
     _DEV_TCP_REDIRECT_DESCRIPTION: _DevSocketRedirectMatcher,
+    _DOWNLOAD_THEN_RUN_DESCRIPTION: lambda: DownloadThenRunMatcher(_SHELL_NAMES_RE),
 }
 DANGEROUS_PATTERNS_COMPILED = [
     (_CUSTOM_MATCHERS[d]() if d in _CUSTOM_MATCHERS else re.compile(p, _RE_FLAGS), d)
@@ -1738,7 +1738,11 @@ def _deny_command_variants(command: str):
     executable basename (never arbitrary argument paths).
     """
     yield from _command_detection_variants(command)
-    pending, seen = [expand_ansi_c_quotes(mask_heredoc_bodies_for_shell_scan(command))], set()
+    # Heredoc bodies are masked first, then ANSI-C expanded: `$'...'` inside a body is literal data.
+    pending = list(dict.fromkeys(
+        expand_ansi_c_quotes(mask_heredoc_bodies_for_shell_scan(command, code_consumers=code))
+        for code in (False, True)))
+    seen = set()
     while pending:
         source = pending.pop()
         if source in seen:
@@ -1782,7 +1786,24 @@ def _deny_command_variants(command: str):
 
 
 def _command_detection_variants(command: str):
-    command = mask_heredoc_bodies_for_shell_scan(command)
+    """Variants of the command with provably inert heredoc bodies dropped (#140704).
+
+    A quote in a body (`it's`) desynced every quote-aware pass and hid the command after the
+    heredoc; body lines projected as commands. `cat` bodies are data, so they are dropped outright.
+    python/osascript bodies are code: their dropped copy is scanned IN ADDITION, a union that can
+    only add detections. Bodies a shell runs (`bash <<EOF`, `cat <<EOF | sh`, `ssh host <<EOF`) and
+    unterminated or mis-parsed `<<` (`$((a<<b))`) are never dropped.
+    """
+    seen: set[str] = set()
+    sources = dict.fromkeys(mask_heredoc_bodies_for_shell_scan(command, code_consumers=code) for code in (False, True))
+    for source in sources:
+        for variant in _single_command_detection_variants(source):
+            if variant not in seen:
+                seen.add(variant)
+                yield variant
+
+
+def _single_command_detection_variants(command: str):
     # Mask quoted newlines BEFORE normalization: normalization strips escapes (\" -> ") and ""
     # pairs, corrupting quote tracking (`echo "a\""` becomes an unterminated quote) so masking
     # afterwards could swallow a REAL unquoted newline separator. The raw command carries faithful quote state
