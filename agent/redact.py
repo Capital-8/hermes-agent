@@ -1904,7 +1904,12 @@ class RedactingFormatter(logging.Formatter):
     """Log formatter that redacts secrets from all log messages."""
 
     def format(self, record: logging.LogRecord) -> str:
-        return redact_sensitive_text(super().format(record))
+        text = redact_sensitive_text(super().format(record))
+        # aiohttp's access line carries the raw request target, and webhook platforms that cannot
+        # send headers authenticate in the query string (BlueBubbles ``?password=``). An adapter's
+        # own ``access_log=None`` does not reach the shared listener that serves multiplexed
+        # profiles (#143550), so credential params are masked on every Hermes log handler.
+        return _redact_strict_url_credentials(text) if record.name == "aiohttp.access" else text
 
     def formatMessage(self, record: logging.LogRecord) -> str:
         from hermes_logging import display_record  # lazy: hermes_logging imports this module lazily
