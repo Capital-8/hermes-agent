@@ -1551,19 +1551,11 @@ prompt_caching:
 
 The 1h tier writes at 2x the base input price (5m writes at 1.25x) and only pays off when your turns are more than five minutes apart — otherwise every tool result is written at the dearer rate for retention nobody uses. `"auto"` picks the tier per session from who paces it: `1h` for sessions a person types into (CLI, TUI, Desktop, Telegram/Discord/Slack and the other messaging platforms), `5m` for machine-paced ones (subagents, cron, `hermes -q` one-shots, webhooks, Kanban workers, the API server, tool-invoked and batch runs). On an install where interactive sessions are parked and resumed through the day, `auto` cut the interactive cache-write bill by roughly 40% while leaving fan-out subagent spend untouched. Delegated subagents are always clamped to `5m`, whatever the setting.
 
-### Cache warming (opt-in)
+### Cache warming during long tool calls
 
-A cache entry expires `cache_ttl` after its last use, so a single tool call that runs longer than that (a five-minute build, a long test suite) drops the whole prefix and the next request pays a full-price cache **write**. Cache warming replays the last request with `max_tokens: 1` shortly before the entry expires — one cache **read** of the prompt, roughly a twelfth of the write it prevents:
+A cache entry expires `cache_ttl` after its last use, so a single tool call that runs longer than that (a five-minute build, a long test suite) drops the whole prefix and the next request pays a full-price cache **write**. While a turn is still running, Hermes replays the last request with `max_tokens: 1` shortly before the entry expires — one cache **read** of the prompt, roughly a twelfth of the write it prevents. There is nothing to configure: it follows prompt caching (no cache markers, no warming) and stops the moment the turn ends, so it never spends money betting on when you will reply.
 
-```yaml
-prompt_caching:
-  cache_warming: "off"   # "off" (default) | "streaming" | "idle"
-```
-
-- `"streaming"` warms only while a turn is still running (a tool round longer than the TTL); the next request is certain, so the refresh is a near-guaranteed saving.
-- `"idle"` also warms between turns, for up to 30 minutes after the last response, pricing the chance you come back at 15%.
-
-Every refresh is gated on expected savings of at least $0.05 (`p × miss cost − warm cost`), so a small prompt or an unpriced model never pays for one; streaming warming stops after an hour and idle warming after 30 minutes regardless. Claude requests that carry cache markers are warmed on native Anthropic (`api.anthropic.com`) and on Chat Completions gateways such as Nous Portal and OpenRouter. A gateway may not keep the `1h` tier (on Nous Portal a `1h` entry was gone after 7 minutes), so off native Anthropic the refresh runs on the 5-minute schedule whatever `cache_ttl` says. Requests with budget-based extended thinking are skipped because `max_tokens: 1` would change the budget Anthropic keys the cache on. Refresh tokens and dollars count toward the session totals (`session_cache_warm_calls`) but never enter the conversation.
+A refresh is sent only when it is expected to save at least $0.05 (`miss cost − warm cost`), so a small prompt, an unpriced model or a subscription-included route never pays for one; the refreshes of one tool call never cost more in total than the single cache write they prevent, and warming stops after an hour regardless. Claude requests that carry cache markers are warmed on native Anthropic (`api.anthropic.com`) and on Chat Completions gateways such as Nous Portal and OpenRouter. A gateway may not keep the `1h` tier (on Nous Portal a `1h` entry was gone after 7 minutes), so off native Anthropic the refresh runs on the 5-minute schedule whatever `cache_ttl` says. Requests with budget-based extended thinking are skipped because `max_tokens: 1` would change the budget Anthropic keys the cache on. Refresh tokens and dollars count toward the session totals (`session_cache_warm_calls`, `task=cache_warm` usage rows) but never enter the conversation.
 
 ## Auxiliary Models
 
