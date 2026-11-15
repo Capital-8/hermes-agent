@@ -17,7 +17,7 @@ import unicodedata
 from tools import approval_parser_budget as _parser_budget
 from tools.approval_parser_budget import _scan_backtick_end, _scan_dollar_paren_end, _scan_shell
 from tools.approval_ansi_c import _is_shell_comment_start, expand_ansi_c_quotes
-from tools.approval_env_split import _env_split_payload, _split_env_string  # re-exported
+from tools.approval_env_split import _env_split_payload
 from tools.approval_home_fold import _rewrite_resolved_hermes_home, _rewrite_resolved_user_home
 
 logger = logging.getLogger("tools.approval")
