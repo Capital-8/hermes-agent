@@ -1013,9 +1013,11 @@ async def get_messaging_platforms(profile: Optional[str] = None):
 async def install_messaging_catalog_platform(name: str, body: MessagingCatalogInstall, profile: Optional[str] = None):
     """Install and enable one catalog platform into the target profile, through the catalog install
     every surface uses (pinned commit, kill list, scan). A refusal is ``ok: false`` with the reason and
-    the one command that installs it; the card's platforms are the ids it registered."""
+    the one command that installs it; the card's platforms are the ids it registered. The install
+    clones and resolves dependencies, so it runs outside ``_profile_scope``'s process-wide lock (the
+    installer serializes its own config writes), like the Plugins page's installs."""
     def _run():
-        with _profile_scope(body.profile or profile):
+        with _config_profile_scope(body.profile or profile):
             return install_catalog_platform(name, confirmed=body.confirmed)
 
     return await asyncio.to_thread(_run)

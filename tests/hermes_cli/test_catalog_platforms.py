@@ -10,38 +10,53 @@ from gateway.platform_registry import PlatformEntry, platform_registry
 from hermes_constants import get_hermes_home
 
 
+LABS = "https://github.com/NousResearch/hermes-labs-plugins"
+
+
 @pytest.fixture
-def in_tree_catalog(monkeypatch):
+def fixture_catalog(monkeypatch):
+    """A small catalog, one entry per rule the list applies, instead of the shipped one."""
     from hermes_cli import plugin_catalog
-    monkeypatch.setattr(plugin_catalog, "fetch_live_catalog", lambda **_: None)  # in-tree only, no network
+    from hermes_cli.plugin_catalog import PluginCatalogEntry
+
+    def entry(name, tier, repo="https://github.com/NousResearch/hermes-official-plugins", category="platform"):
+        return PluginCatalogEntry(name=name, repo=repo, sha="1" * 40, description=f"{name} platform. More words.",
+                                  maintainer="Nous Research", tier=tier, category=category)
+
+    entries = [entry("chatone", "official"), entry("chattwo", "verified"), entry("labschat", "community", repo=LABS),
+               entry("commchat", "community", repo="https://github.com/someone/commchat"),
+               entry("toolx", "official", category="desktop")]
+    monkeypatch.setattr(plugin_catalog, "load_catalog_live", lambda: list(entries))
+    monkeypatch.setattr(plugin_catalog, "load_catalog", lambda *a, **k: list(entries))
     monkeypatch.delenv("HERMES_DISABLE_LAZY_INSTALLS", raising=False)  # the suite's opt-out; config decides here
 
 
-def test_nous_built_catalog_platforms_are_offered_community_ones_are_not(in_tree_catalog):
+def test_nous_built_catalog_platforms_are_offered_community_ones_are_not(fixture_catalog):
     from hermes_cli.catalog_platforms import available_catalog_platforms
 
     rows = {row.name: row for row in available_catalog_platforms(provided=())}
-    assert rows["yuanbao"].badge == "labs" and rows["yuanbao"].needs_confirm
-    assert rows["xchat"].badge == "official" and not rows["xchat"].needs_confirm
-    assert rows["yuanbao"].install_command == "hermes plugins install yuanbao"
-    assert rows["yuanbao"].summary.startswith("Tencent Yuanbao messaging platform") and rows["yuanbao"].blocked == ""
-    assert "fluxer-platform" not in rows  # community: offered in the plugin browser, not as a setup pick
-    assert "yuanbao" not in {row.name for row in available_catalog_platforms(provided={"yuanbao"})}
+    assert set(rows) == {"chatone", "chattwo", "labschat"}  # community and non-platform entries are not setup picks
+    assert rows["labschat"].badge == "labs" and rows["labschat"].needs_confirm
+    assert rows["chatone"].badge == "official" and not rows["chatone"].needs_confirm
+    assert rows["chattwo"].badge == "verified"
+    assert rows["labschat"].install_command == "hermes plugins install labschat"
+    assert rows["labschat"].summary == "labschat platform." and rows["labschat"].blocked == ""
+    assert "labschat" not in {row.name for row in available_catalog_platforms(provided={"labschat"})}
 
 
-def test_setup_menu_lists_catalog_platforms_and_lazy_off_says_why(in_tree_catalog):
+def test_setup_menu_lists_catalog_platforms_and_lazy_off_says_why(fixture_catalog):
     from hermes_cli import gateway
 
     rows = gateway._all_platforms(catalog=True)
-    pick = next(p for p in rows if p["key"] == "yuanbao" and p.get("_catalog_platform"))
+    pick = next(p for p in rows if p["key"] == "labschat" and p.get("_catalog_platform"))
     assert gateway._platform_status(pick) == "not installed · Hermes Labs"
     assert not any(p.get("_catalog_platform") for p in gateway._all_platforms())  # summaries: no progress
 
     (get_hermes_home() / "config.yaml").write_text("security:\n  allow_lazy_installs: false\n", encoding="utf-8")
     from hermes_cli.catalog_platforms import install_catalog_platform
-    refused = install_catalog_platform("yuanbao", confirmed=True)
+    refused = install_catalog_platform("labschat", confirmed=True)
     assert refused["ok"] is False and "allow_lazy_installs is off" in refused["error"]
-    assert refused["install_command"] == "hermes plugins install yuanbao"
+    assert refused["install_command"] == "hermes plugins install labschat"
 
 
 def test_platform_plugin_installed_after_import_is_labelled_and_masked():
@@ -83,7 +98,7 @@ def _install_late_platform(dir_name: str, platform: str, *, catalog_name: str = 
         f"    ctx.register_platform(name={platform!r}, label='Late', adapter_factory=lambda cfg: None,\n"
         "                          check_fn=lambda: True, required_env=['LATE_TOKEN'])\n", encoding="utf-8")
     if catalog_name:
-        record = {"catalog": {"name": catalog_name, "repo": "https://github.com/NousResearch/hermes-labs-plugins",
+        record = {"catalog": {"name": catalog_name, "repo": "https://github.com/NousResearch/hermes-official-plugins",
                               "tier": "official", "sha": "0" * 40, "pin": "0" * 40}}
         (home / "plugins" / ".install-metadata.json").write_text(json.dumps({dir_name: record}), encoding="utf-8")
     (home / "config.yaml").write_text(f"plugins:\n  enabled:\n    - {dir_name}\n", encoding="utf-8")
@@ -97,12 +112,12 @@ def test_channels_page_open_before_an_install_elsewhere_lists_it_on_the_next_rea
     assert "lateplug" in {card["id"] for card in _messaging_platform_catalog()}
 
 
-def test_catalog_platform_installed_by_another_process_is_not_offered_and_install_says_already(in_tree_catalog):
+def test_catalog_platform_installed_by_another_process_is_not_offered_and_install_says_already(fixture_catalog):
     from hermes_cli.catalog_platforms import available_catalog_platforms, install_catalog_platform
 
-    assert "yuanbao" in {row.name for row in available_catalog_platforms()}  # the page drew it as installable
-    _install_late_platform("yuanbao", "yuanbao", catalog_name="yuanbao")  # the background default install lands
-    assert "yuanbao" not in {row.name for row in available_catalog_platforms()}
-    result = install_catalog_platform("yuanbao", confirmed=True)  # the stale page's Install click
+    assert "chatone" in {row.name for row in available_catalog_platforms()}  # the page drew it as installable
+    _install_late_platform("chatone", "chatone", catalog_name="chatone")  # the background default install lands
+    assert "chatone" not in {row.name for row in available_catalog_platforms()}
+    result = install_catalog_platform("chatone")  # the stale page's Install click
     assert result["ok"] is True and result["already_installed"] is True
-    assert result["plugin_name"] == "yuanbao" and result["platforms"] == ["yuanbao"]
+    assert result["plugin_name"] == "chatone" and result["platforms"] == ["chatone"]

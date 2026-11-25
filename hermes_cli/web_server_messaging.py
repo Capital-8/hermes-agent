@@ -2,6 +2,7 @@
 and Telegram onboarding state.
 """
 
+import functools
 import logging
 import os
 import subprocess
@@ -10,7 +11,9 @@ from dataclasses import dataclass
 from fastapi import HTTPException
 from pathlib import Path
 from typing import Any, Optional
-from hermes_cli.config import OPTIONAL_ENV_VARS, _manifest_env_info, _platform_plugin_manifests, write_platform_config_field
+from hermes_cli.config_provider_env import core_declared_env_names
+from hermes_cli.config import (
+    OPTIONAL_ENV_VARS, _manifest_env_info, _platform_plugin_manifests, write_platform_config_field)
 from hermes_cli.setup_hidden_env import is_setup_hidden_env as _is_setup_hidden_env
 from hermes_cli.version_info import hermes_user_agent
 
@@ -61,6 +64,21 @@ _PLATFORM_ORDER: tuple[str, ...] = (
 )
 
 
+@functools.cache
+def _core_env_keys() -> frozenset[str]:
+    """Env vars core or a bundled platform plugin declares: fixed for the life of the process."""
+    return core_declared_env_names() | _manifest_env_info(_platform_plugin_manifests(source="bundled")).keys()
+
+
+def _card_env_table() -> dict[str, dict[str, Any]]:
+    """Env-var metadata for the bound home's cards: its own user platform plugin manifests read now,
+    under the core and bundled declarations (a user manifest cannot unmask a core secret).
+    ``OPTIONAL_ENV_VARS``'s other entries came from the LAUNCH home's user plugins at import, so they
+    are left out: another profile may carry a different version of that plugin."""
+    core = {k: v for k, v in OPTIONAL_ENV_VARS.items() if k in _core_env_keys()}
+    return {**_manifest_env_info(_platform_plugin_manifests(source="user")), **core}
+
+
 def _messaging_platform_catalog() -> tuple[dict[str, Any], ...]:
     """Build the messaging catalog from the gateway's Platform enum + plugin registry.
 
@@ -89,7 +107,7 @@ def _messaging_platform_catalog() -> tuple[dict[str, Any], ...]:
 
     # A plugin installed after this process imported config (Desktop/dashboard install, the
     # background default install, another profile's) is described from its manifest, read now.
-    env_table = {**_manifest_env_info(_platform_plugin_manifests(source="user")), **OPTIONAL_ENV_VARS}
+    env_table = _card_env_table()
     seen: set[str] = set()
     entries: list[dict[str, Any]] = []
     builtin = [m.value for m in Platform.__members__.values() if m.value != "local"]

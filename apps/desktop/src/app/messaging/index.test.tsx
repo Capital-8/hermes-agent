@@ -642,6 +642,31 @@ describe('MessagingView catalog platforms', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Yuanbao' })).toBeTruthy())
   })
 
+  it('drops a selected row that was installed elsewhere instead of still offering Install', async () => {
+    $settingsScopeOverride.set(null)
+    getMessagingPlatforms.mockResolvedValue({ available: [yuanbao], platforms: [platform()] })
+
+    await renderMessaging()
+    await act(async () => {
+      $changeEventsAvailable.set(true)
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /yuanbao.*Hermes Labs/i }))
+    expect(await screen.findByRole('button', { name: /^Install$/ })).toBeTruthy()
+
+    // The background default install lands the plugin; the change watcher ticks platforms.changed.
+    getMessagingPlatforms.mockResolvedValue({
+      available: [],
+      platforms: [platform(), platform({ id: 'yuanbao', name: 'Yuanbao' })]
+    })
+    await act(async () => {
+      $platformsChangeTick.set($platformsChangeTick.get() + 1)
+    })
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Install$/ })).toBeNull())
+    expect(screen.queryByText('Not installed')).toBeNull()
+    expect(installMessagingCatalogPlatform).not.toHaveBeenCalled()
+  })
+
   it('says why a row cannot install and the command to run instead', async () => {
     $settingsScopeOverride.set(null)
     getMessagingPlatforms.mockResolvedValue({

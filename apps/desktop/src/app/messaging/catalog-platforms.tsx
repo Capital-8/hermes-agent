@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -59,14 +59,25 @@ export function CatalogPlatformRow({
   )
 }
 
+export interface CatalogInstallHandlers {
+  /** The install request for `row` is about to go out (the page keeps the row while it runs). */
+  onInstallStart: (row: MessagingCatalogPlatform) => void
+  /** It settled, either way. */
+  onInstallEnd: (row: MessagingCatalogPlatform) => void
+  /** It succeeded under `profile`; `platformIds` are the ids the plugin registered. */
+  onInstalled: (row: MessagingCatalogPlatform, platformIds: string[], profile: string | undefined) => Promise<void>
+}
+
 /** A catalog platform's pane: what it is, then Install (a Hermes Labs one asks first), or why it cannot
- *  install here and the command that does. `onInstalled` gets the platform ids the plugin registered. */
+ *  install here and the command that does. The pane is reused across rows: an install still running for
+ *  a row the user has left reports nothing here. */
 export function CatalogPlatformDetail({
+  onInstallEnd,
+  onInstallStart,
   onInstalled,
   row,
   scopeProfile
-}: {
-  onInstalled: (platformIds: string[]) => Promise<void>
+}: CatalogInstallHandlers & {
   row: MessagingCatalogPlatform
   scopeProfile: string | undefined
 }) {
@@ -76,31 +87,50 @@ export function CatalogPlatformDetail({
   const [confirming, setConfirming] = useState(false)
   const [failure, setFailure] = useState<null | { command: string; error: string }>(null)
   const [prevName, setPrevName] = useState(row.name)
+  const shownName = useRef(row.name)
+  shownName.current = row.name
 
   if (prevName !== row.name) {
     setPrevName(row.name)
     setFailure(null)
+    setInstalling(false)
+    setConfirming(false)
   }
 
   async function install(confirmed: boolean) {
+    const target = row
+    const profile = scopeProfile
+    const stillShown = () => shownName.current === target.name
     setInstalling(true)
     setFailure(null)
+    onInstallStart(target)
 
     try {
-      const result = await installMessagingCatalogPlatform(row.name, confirmed, scopeProfile)
+      const result = await installMessagingCatalogPlatform(target.name, confirmed, profile)
 
       if (!result.ok) {
-        setFailure({ command: result.install_command || row.install_command, error: result.error || c.installFailed(row.title) })
+        if (stillShown()) {
+          setFailure({
+            command: result.install_command || target.install_command,
+            error: result.error || c.installFailed(target.title)
+          })
+        }
 
         return
       }
 
-      notify({ kind: 'success', title: c.installed(row.title), message: c.installedDetail })
-      await onInstalled(result.platforms ?? [])
+      notify({ kind: 'success', title: c.installed(target.title), message: c.installedDetail })
+      await onInstalled(target, result.platforms ?? [], profile)
     } catch (err) {
-      setFailure({ command: row.install_command, error: err instanceof Error ? err.message : String(err) })
+      if (stillShown()) {
+        setFailure({ command: target.install_command, error: err instanceof Error ? err.message : String(err) })
+      }
     } finally {
-      setInstalling(false)
+      onInstallEnd(target)
+
+      if (stillShown()) {
+        setInstalling(false)
+      }
     }
   }
 

@@ -49,7 +49,7 @@ import { SettingsProfileScope } from '../settings/profile-scope'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
 import { AllowlistField } from './allowlist-field'
-import { CatalogPlatformDetail, CatalogPlatformRow, catalogRowId } from './catalog-platforms'
+import { type CatalogInstallHandlers, CatalogPlatformDetail, CatalogPlatformRow, catalogRowId } from './catalog-platforms'
 import { PlatformAvatar } from './platform-icon'
 import { RelayLinkSetup } from './relay-link'
 import { TelegramQrSetup } from './telegram-qr-setup'
@@ -159,8 +159,9 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   const [platforms, setPlatforms] = useState<MessagingPlatformInfo[] | null>(null)
   // Catalog platforms this profile has not installed: picking one installs it, then its card takes over.
   const [available, setAvailable] = useState<MessagingCatalogPlatform[]>([])
-  // The catalog row being looked at stays open while its install runs: the plugin lands on disk (and the
-  // platforms.changed refresh drops the row) before the install call returns with the card to open.
+  // A catalog row stays listed only while this page's install of it runs: the plugin lands on disk (and the
+  // platforms.changed refresh drops the row) before the install call returns with the card to open. A row
+  // installed elsewhere (background default install, another terminal) leaves with the refreshed list.
   const [keptCatalog, setKeptCatalog] = useState<MessagingCatalogPlatform | null>(null)
   // A saved credential/toggle only takes effect on the next gateway start, so a
   // vanishing toast is not enough: the page keeps a banner up until a restart
@@ -392,13 +393,35 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   }, [activeStatusFilter, available, query])
 
   // An install from this page: re-read the list (the plugin's card replaces its catalog row) and open
-  // the card it registered, whose credential form is what the user picked the row for.
-  async function handleCatalogInstalled(platformIdsAdded: string[]) {
-    await refreshPlatforms(true)
-    setKeptCatalog(null)
+  // the card it registered, whose credential form is what the user picked the row for. Only while the
+  // page still shows that row under the same profile: a newer pick, a profile switch or leaving
+  // Messaging wins over an install that finishes late.
+  const ownerRef = useRef({ mounted: true, profile: scopeProfile, selectedId })
+  ownerRef.current = { ...ownerRef.current, profile: scopeProfile, selectedId }
+  useEffect(() => {
+    const owner = ownerRef.current
+    owner.mounted = true
 
-    if (platformIdsAdded[0]) {
-      setSelectedId(platformIdsAdded[0])
+    return () => {
+      owner.mounted = false
+    }
+  }, [])
+
+  const catalogInstall: CatalogInstallHandlers = {
+    onInstallStart: row => setKeptCatalog(row),
+    onInstallEnd: row => setKeptCatalog(kept => (kept?.name === row.name ? null : kept)),
+    onInstalled: async (row, platformIdsAdded, profile) => {
+      const samePage = () => ownerRef.current.mounted && ownerRef.current.profile === profile
+
+      if (!samePage()) {
+        return
+      }
+
+      await refreshPlatforms(true)
+
+      if (platformIdsAdded[0] && samePage() && ownerRef.current.selectedId === catalogRowId(row)) {
+        setSelectedId(platformIdsAdded[0])
+      }
     }
   }
 
@@ -643,10 +666,7 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                         <li key={row.name}>
                           <CatalogPlatformRow
                             active={selectedCatalog?.name === row.name}
-                            onSelect={() => {
-                              setKeptCatalog(row)
-                              setSelectedId(catalogRowId(row))
-                            }}
+                            onSelect={() => setSelectedId(catalogRowId(row))}
                             row={row}
                           />
                         </li>
@@ -688,7 +708,7 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                 )}
                 {selectedCatalog && (
                   <CatalogPlatformDetail
-                    onInstalled={handleCatalogInstalled}
+                    {...catalogInstall}
                     row={selectedCatalog}
                     scopeProfile={scopeProfile}
                   />
