@@ -9,11 +9,15 @@ plugin browser, where their unreviewed status is the first thing shown. A Hermes
 an explicit confirmation: it is built by Nous Research but not supported.
 
 Callers bind the owning profile (``_profile_scope`` / ``-p``) before calling; every read and the
-install resolve ``get_hermes_home()``.
+install resolve ``get_hermes_home()``. A setup surface outlives the installs it lists: a dashboard
+or Desktop backend that loaded plugins before the gateway's background default install finished,
+or before another terminal's ``hermes plugins install``, must see that plugin on the next read, so
+every read goes through :func:`refresh_platform_plugins` instead of the process-lifetime discovery.
 """
 
 from __future__ import annotations
 
+import threading
 from dataclasses import asdict, dataclass
 from typing import Any, Collection, Literal, Optional
 
@@ -58,11 +62,61 @@ def badge_for(entry: Any) -> Optional[Badge]:
     return _TIER_BADGES.get(entry.tier)
 
 
+# Hermes home key -> the plugin-tree signature the loaded registry was refreshed against.
+_refreshed_at: dict[str, tuple] = {}
+_refresh_lock = threading.Lock()
+
+
+def _plugin_tree_signature() -> tuple:
+    """What decides which platform plugins the bound home loads: every user platform manifest
+    (added, removed, replaced, edited) and the ``plugins.enabled`` / ``plugins.disabled`` lists."""
+    from hermes_cli.config import platform_manifest_stamp
+    from hermes_cli.plugins_cmd import _get_disabled_set, _get_enabled_set
+    return platform_manifest_stamp(), tuple(sorted(_get_enabled_set())), tuple(sorted(_get_disabled_set()))
+
+
+def refresh_platform_plugins() -> None:
+    """Load the bound home's plugins so the platform registry matches its plugin tree now. Discovery
+    is cached for the process; a tree that moved since this process last looked (or a registry some
+    other caller loaded before this module first looked) is rediscovered once, then reads are a
+    stat-cheap signature compare."""
+    from hermes_cli.plugins import discover_plugins, get_plugin_manager
+    from hermes_constants import hermes_home_key
+    key = hermes_home_key()
+    with _refresh_lock:
+        signature = _plugin_tree_signature()
+        if _refreshed_at.get(key) == signature:
+            discover_plugins()
+            return
+        discover_plugins(force=bool(get_plugin_manager()._discovered))
+        _refreshed_at[key] = signature
+
+
+def installed_catalog_names() -> frozenset[str]:
+    """Catalog entries installed into the bound home and enabled, read from the install records
+    ``hermes plugins list`` reads, not from what this process loaded: an enabled plugin this process
+    cannot import yet (its dependencies arrived in a newer environment) is installed all the same."""
+    from hermes_cli.plugins_cmd import (
+        PluginOperationError, _get_enabled_set, _plugins_dir, _read_install_metadata, _read_manifest)
+    from hermes_cli.plugins_cmd_catalog import catalog_install_record
+    try:
+        keys = list(_read_install_metadata())
+    except PluginOperationError:
+        return frozenset()
+    enabled = _get_enabled_set()
+    names = set()
+    for key in keys:
+        target = _plugins_dir() / key
+        record = catalog_install_record(target) if target.is_dir() else None
+        if record and {key, target.name, _read_manifest(target).get("name")} & enabled:
+            names.add(record["catalog_name"])
+    return frozenset(names)
+
+
 def provided_platforms() -> frozenset[str]:
-    """Platform ids and owning plugin names the bound home already loads (built-in or plugin)."""
-    from hermes_cli.plugins import discover_plugins
+    """Platform ids and owning plugin names the bound home loads now (built-in or plugin)."""
     from gateway.platform_registry import platform_registry
-    discover_plugins()
+    refresh_platform_plugins()
     return frozenset(name for entry in platform_registry.all_entries()
                      for name in (entry.name, entry.plugin_name) if name)
 
@@ -78,7 +132,8 @@ def _runs_here(entry: Any) -> bool:
 def available_catalog_platforms(provided: Optional[Collection[str]] = None) -> list[CatalogPlatform]:
     """Catalog ``category: platform`` entries this list offers that nothing loaded provides, sorted by
     title. A removed (kill-listed) entry, one for another OS or one this Hermes is too old for is left
-    out: its install would be refused. Never raises; an unreadable catalog lists nothing."""
+    out: its install would be refused, and so is an entry installed and enabled here that this process
+    has not loaded (:func:`installed_catalog_names`). Never raises; an unreadable catalog lists nothing."""
     from hermes_cli.default_plugins import fetch_allowed
     from hermes_cli.memory_provider_migration import _install_command
     from hermes_cli.plugin_catalog import load_catalog_live, match_removed, resolved_removed_entries
@@ -86,7 +141,7 @@ def available_catalog_platforms(provided: Optional[Collection[str]] = None) -> l
     from hermes_constants import get_hermes_home
 
     home = get_hermes_home()
-    have = provided_platforms() if provided is None else frozenset(provided)
+    have = (provided_platforms() if provided is None else frozenset(provided)) | installed_catalog_names()
     entries = [e for e in load_catalog_live() if e.category == "platform" and e.name not in have]
     offered: list[tuple[Any, Badge]] = []
     for entry in entries:
@@ -119,8 +174,9 @@ def install_catalog_platform(name: str, *, confirmed: bool = False) -> dict[str,
     refused here, never installed past the list's tier rule."""
     from hermes_cli.left_core_migration import _first_cause
     from hermes_cli.plugins_cmd_install import dashboard_install_plugin
-    from hermes_cli.plugins import discover_plugins
 
+    if (present := _already_installed(name)) is not None:
+        return present
     row = next((r for r in available_catalog_platforms() if r.name == name), None)
     if row is None:
         return {"ok": False, "error": f"'{name}' is not a catalog platform this home can add.", "install_command": ""}
@@ -131,9 +187,26 @@ def install_catalog_platform(name: str, *, confirmed: bool = False) -> dict[str,
                 "install_command": row.install_command}
     result = dashboard_install_plugin("", force=False, enable=True, catalog_name=name)
     if not result.get("ok"):
-        return {"ok": False, "error": _first_cause(str(result.get("error") or "")),
-                "install_command": row.install_command}
+        # Another installer (the gateway's default install) may have landed it while this one ran.
+        return _already_installed(name) or {"ok": False, "error": _first_cause(str(result.get("error") or "")),
+                                            "install_command": row.install_command}
     plugin_name = str(result.get("plugin_name") or name)
-    discover_plugins()
+    refresh_platform_plugins()
     return {"ok": True, "plugin_name": plugin_name, "platforms": platforms_of(plugin_name),
             "warnings": list(result.get("warnings") or [])}
+
+
+def _already_installed(name: str) -> Optional[dict[str, Any]]:
+    """The install result for catalog entry *name* when it is already installed and enabled here (a
+    page listed it before the background default install finished), else None. ``platforms`` is
+    empty when this process cannot load the plugin yet; its card appears after a restart."""
+    from hermes_cli.plugins_cmd import _catalog_installed_dir, _read_manifest
+    refresh_platform_plugins()
+    if name not in installed_catalog_names():
+        return None
+    target = _catalog_installed_dir(name)
+    plugin_name = str((_read_manifest(target).get("name") if target else None) or name)
+    platforms = platforms_of(plugin_name)
+    warnings = [] if platforms else [f"{plugin_name} is installed; restart Hermes to load it in this window."]
+    return {"ok": True, "plugin_name": plugin_name, "platforms": platforms, "warnings": warnings,
+            "already_installed": True}

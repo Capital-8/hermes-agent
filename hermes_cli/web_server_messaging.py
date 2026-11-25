@@ -76,10 +76,11 @@ def _messaging_platform_catalog() -> tuple[dict[str, Any], ...]:
     # first would claim them with no plugin metadata (nameless "Irc"/"Ntfy" cards).
     plugin_map: dict[str, Any] = {}
     try:
-        # Plugin discovery normally runs as a side effect of importing model_tools, which this
-        # server process doesn't do — trigger it explicitly (idempotent).
-        from hermes_cli.plugins import discover_plugins
-        discover_plugins()
+        # This server process does not import model_tools (whose import discovers plugins), and it
+        # outlives installs made elsewhere (the gateway's background default install, another
+        # terminal): refresh against the plugin tree on every read, not once per process.
+        from hermes_cli.catalog_platforms import refresh_platform_plugins
+        refresh_platform_plugins()
         from gateway.platform_registry import platform_registry
         for plugin_entry in platform_registry.plugin_entries():
             plugin_map[plugin_entry.name] = plugin_entry

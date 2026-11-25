@@ -67,3 +67,42 @@ def test_platform_plugin_installed_after_import_is_labelled_and_masked():
         assert _messaging_env_info("LATEPLAT_ALLOWED_USERS", card["env_info"]["LATEPLAT_ALLOWED_USERS"])["is_list"]
     finally:
         platform_registry.unregister("lateplat", scope=scope)
+
+
+def _install_late_platform(dir_name: str, platform: str, *, catalog_name: str = "") -> None:
+    """What an installer running in another process leaves behind: the tree, its install record when
+    it came from the catalog, and the enable in config.yaml."""
+    import json
+
+    home = get_hermes_home()
+    plugin_dir = home / "plugins" / dir_name
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.yaml").write_text(f"name: {dir_name}\nkind: platform\nversion: 1.0.0\n", encoding="utf-8")
+    (plugin_dir / "__init__.py").write_text(
+        "def register(ctx):\n"
+        f"    ctx.register_platform(name={platform!r}, label='Late', adapter_factory=lambda cfg: None,\n"
+        "                          check_fn=lambda: True, required_env=['LATE_TOKEN'])\n", encoding="utf-8")
+    if catalog_name:
+        record = {"catalog": {"name": catalog_name, "repo": "https://github.com/NousResearch/hermes-labs-plugins",
+                              "tier": "official", "sha": "0" * 40, "pin": "0" * 40}}
+        (home / "plugins" / ".install-metadata.json").write_text(json.dumps({dir_name: record}), encoding="utf-8")
+    (home / "config.yaml").write_text(f"plugins:\n  enabled:\n    - {dir_name}\n", encoding="utf-8")
+
+
+def test_channels_page_open_before_an_install_elsewhere_lists_it_on_the_next_read():
+    from hermes_cli.web_server_messaging import _messaging_platform_catalog
+
+    assert "lateplug" not in {card["id"] for card in _messaging_platform_catalog()}  # discovery ran, cached
+    _install_late_platform("lateplug", "lateplug")
+    assert "lateplug" in {card["id"] for card in _messaging_platform_catalog()}
+
+
+def test_catalog_platform_installed_by_another_process_is_not_offered_and_install_says_already(in_tree_catalog):
+    from hermes_cli.catalog_platforms import available_catalog_platforms, install_catalog_platform
+
+    assert "yuanbao" in {row.name for row in available_catalog_platforms()}  # the page drew it as installable
+    _install_late_platform("yuanbao", "yuanbao", catalog_name="yuanbao")  # the background default install lands
+    assert "yuanbao" not in {row.name for row in available_catalog_platforms()}
+    result = install_catalog_platform("yuanbao", confirmed=True)  # the stale page's Install click
+    assert result["ok"] is True and result["already_installed"] is True
+    assert result["plugin_name"] == "yuanbao" and result["platforms"] == ["yuanbao"]

@@ -62,8 +62,8 @@ def _all_platforms(catalog: bool = False) -> list[dict]:
     appends the catalog platforms nothing loaded provides yet (``_catalog_platform``): picking one
     installs it first. Status summaries leave it off: a row that is not installed is no progress."""
     try:
-        from hermes_cli.plugins import discover_plugins
-        discover_plugins()
+        from hermes_cli.catalog_platforms import refresh_platform_plugins
+        refresh_platform_plugins()  # a plugin installed since the menu last drew (background default install)
     except Exception as e:
         _gw().logger.debug("plugin discovery failed during platform enumeration: %s", e)
 
@@ -409,7 +409,10 @@ def _install_catalog_pick(row) -> list[dict]:
         _gw().print_error(f"  Could not install '{row.name}': {result['error']}")
         _gw().print_info(f"  Install it with: {result['install_command'] or row.install_command}")
         return []
-    _gw().print_success(f"  Installed and enabled the '{result['plugin_name']}' plugin.")
+    done = "is already installed and enabled" if result.get("already_installed") else "is installed and enabled"
+    _gw().print_success(f"  The '{result['plugin_name']}' plugin {done}.")
+    for warning in result.get("warnings") or ():
+        _gw().print_warning(f"  {warning}")
     rows = [_registry_row(entry) for key in result["platforms"] if (entry := platform_registry.get(key)) is not None]
     if not rows:
         _gw().print_info("  It registered no messaging platform in this process; run 'hermes gateway setup' again.")
