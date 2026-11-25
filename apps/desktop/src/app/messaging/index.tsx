@@ -159,6 +159,9 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   const [platforms, setPlatforms] = useState<MessagingPlatformInfo[] | null>(null)
   // Catalog platforms this profile has not installed: picking one installs it, then its card takes over.
   const [available, setAvailable] = useState<MessagingCatalogPlatform[]>([])
+  // The catalog row being looked at stays open while its install runs: the plugin lands on disk (and the
+  // platforms.changed refresh drops the row) before the install call returns with the card to open.
+  const [keptCatalog, setKeptCatalog] = useState<MessagingCatalogPlatform | null>(null)
   // A saved credential/toggle only takes effect on the next gateway start, so a
   // vanishing toast is not enough: the page keeps a banner up until a restart
   // actually happens (dashboard parity). Cleared on a completed restart.
@@ -178,10 +181,11 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
 
-  const platformIds = useMemo(
-    () => [...(platforms?.map(p => p.id) ?? []), ...available.map(catalogRowId)],
-    [available, platforms]
-  )
+  const platformIds = useMemo(() => {
+    const catalogIds = [...available, ...(keptCatalog ? [keptCatalog] : [])].map(catalogRowId)
+
+    return [...(platforms?.map(p => p.id) ?? []), ...new Set(catalogIds)]
+  }, [available, keptCatalog, platforms])
 
   const [selectedId, setSelectedId] = useRouteEnumParam('platform', platformIds, platformIds[0] ?? '')
 
@@ -293,6 +297,7 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
     setPrevScope(scopeProfile)
     setPlatforms(null)
     setAvailable([])
+    setKeptCatalog(null)
     setPairing({ approved: [], pending: [] })
     setEdits({})
   }
@@ -347,8 +352,9 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   }, [changeEventsAvailable, refreshAll])
 
   const selectedCatalog = useMemo(
-    () => available.find(row => catalogRowId(row) === selectedId) ?? null,
-    [available, selectedId]
+    () =>
+      [...available, ...(keptCatalog ? [keptCatalog] : [])].find(row => catalogRowId(row) === selectedId) ?? null,
+    [available, keptCatalog, selectedId]
   )
 
   const selected = useMemo(() => {
@@ -389,6 +395,7 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   // the card it registered, whose credential form is what the user picked the row for.
   async function handleCatalogInstalled(platformIdsAdded: string[]) {
     await refreshPlatforms(true)
+    setKeptCatalog(null)
 
     if (platformIdsAdded[0]) {
       setSelectedId(platformIdsAdded[0])
@@ -636,7 +643,10 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                         <li key={row.name}>
                           <CatalogPlatformRow
                             active={selectedCatalog?.name === row.name}
-                            onSelect={() => setSelectedId(catalogRowId(row))}
+                            onSelect={() => {
+                              setKeptCatalog(row)
+                              setSelectedId(catalogRowId(row))
+                            }}
                             row={row}
                           />
                         </li>

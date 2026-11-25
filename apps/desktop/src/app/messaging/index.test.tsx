@@ -625,13 +625,13 @@ describe('MessagingView catalog platforms', () => {
             {
               advanced: false,
               description: 'The App Secret',
-              help: '',
               is_password: true,
               is_set: false,
               key: 'YUANBAO_APP_SECRET',
               prompt: 'App Secret',
               redacted_value: null,
-              required: true
+              required: true,
+              url: null
             }
           ]
         })
