@@ -27,6 +27,7 @@ import { Toast } from "@nous-research/ui/ui/components/toast";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
 import { api } from "@/lib/api";
 import type {
+  CatalogMessagingPlatform,
   MessagingPlatform,
   MessagingPlatformEnvVar,
   MessagingPlatformUpdate,
@@ -40,6 +41,7 @@ import { usePageHeader } from "@/contexts/usePageHeader";
 import { cn, themedBody } from "@/lib/utils";
 import { errorMessage } from "@/lib/api-error";
 import { RelayLinkPanel } from "./ChannelsRelayLink";
+import { AvailablePlatforms } from "./ChannelsCatalog";
 
 // State → badge mapping. The backend emits a small, fixed vocabulary plus
 // whatever the live gateway runtime reports (connected/disconnected/fatal).
@@ -157,6 +159,7 @@ function normalizeWhatsAppMode(mode: unknown): "bot" | "self-chat" | null {
 
 export default function ChannelsPage() {
   const [platforms, setPlatforms] = useState<MessagingPlatform[]>([]);
+  const [available, setAvailable] = useState<CatalogMessagingPlatform[]>([]);
   const [envPath, setEnvPath] = useState("~/.hermes/.env");
   const [gatewayStartCommand, setGatewayStartCommand] = useState(
     "hermes gateway start",
@@ -184,15 +187,21 @@ export default function ChannelsPage() {
 
   const gatewayRunning = platforms.length > 0 && platforms[0].gateway_running;
 
+  // Resolves to the fresh platform list (undefined when the load failed).
   const load = useCallback(() => {
     return api
       .getMessagingPlatforms()
       .then((res) => {
         setPlatforms(res.platforms);
+        setAvailable(res.available ?? []);
         setEnvPath(res.env_path || "~/.hermes/.env");
         setGatewayStartCommand(res.gateway_start_command || "hermes gateway start");
+        return res.platforms;
       })
-      .catch((e) => showToast(`Could not load channels: ${errorMessage(e)}`, "error"));
+      .catch((e) => {
+        showToast(`Could not load channels: ${errorMessage(e)}`, "error");
+        return undefined;
+      });
   }, [showToast]);
 
   useEffect(() => {
@@ -208,6 +217,13 @@ export default function ChannelsPage() {
     setDraftEnv(initial);
     setFieldErrors({});
     setEditing(platform);
+  };
+
+  // A catalog install registered these platform ids: open the first one's credential form.
+  const handleCatalogInstalled = async (platformIds: string[]) => {
+    const fresh = await load();
+    const added = fresh?.find((p) => p.id === platformIds[0]);
+    if (added) openConfig(added);
   };
 
   const handleSave = async () => {
@@ -716,6 +732,12 @@ export default function ChannelsPage() {
           );
         })}
       </div>
+
+      <AvailablePlatforms
+        rows={available}
+        onInstalled={handleCatalogInstalled}
+        showToast={showToast}
+      />
     </div>
   );
 }
@@ -727,7 +749,7 @@ export function WhatsAppOnboardingPanel({
   setRestartNeeded,
   showToast,
 }: {
-  onChanged: () => Promise<void>;
+  onChanged: () => Promise<unknown>;
   onRestartNeeded: () => void;
   platform: MessagingPlatform;
   setRestartNeeded: (needed: boolean) => void;
@@ -1159,7 +1181,7 @@ function TelegramOnboardingPanel({
   showToast,
 }: {
   onManualSetup: () => void;
-  onChanged: () => Promise<void>;
+  onChanged: () => Promise<unknown>;
   onRestartNeeded: () => void;
   platform: MessagingPlatform;
   setRestartNeeded: (needed: boolean) => void;

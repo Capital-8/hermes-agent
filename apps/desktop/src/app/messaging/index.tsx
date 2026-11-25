@@ -17,6 +17,7 @@ import {
   approvePairing,
   getMessagingPlatforms,
   getPairing,
+  type MessagingCatalogPlatform,
   type MessagingEnvVarInfo,
   type MessagingPlatformInfo,
   type MessagingPlatformUpdate,
@@ -48,6 +49,7 @@ import { SettingsProfileScope } from '../settings/profile-scope'
 import type { SetStatusbarItemGroup } from '../shell/statusbar-controls'
 
 import { AllowlistField } from './allowlist-field'
+import { CatalogPlatformDetail, CatalogPlatformRow, catalogRowId } from './catalog-platforms'
 import { PlatformAvatar } from './platform-icon'
 import { RelayLinkSetup } from './relay-link'
 import { TelegramQrSetup } from './telegram-qr-setup'
@@ -155,6 +157,8 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   // the active profile; the API helpers treat null as "target primary").
   const scopeProfile = useStore($settingsRequestProfile)
   const [platforms, setPlatforms] = useState<MessagingPlatformInfo[] | null>(null)
+  // Catalog platforms this profile has not installed: picking one installs it, then its card takes over.
+  const [available, setAvailable] = useState<MessagingCatalogPlatform[]>([])
   // A saved credential/toggle only takes effect on the next gateway start, so a
   // vanishing toast is not enough: the page keeps a banner up until a restart
   // actually happens (dashboard parity). Cleared on a completed restart.
@@ -173,7 +177,12 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   const [statusFilter, setStatusFilter] = useState<'all' | StatusTone>('all')
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
-  const platformIds = useMemo(() => platforms?.map(p => p.id) ?? [], [platforms])
+
+  const platformIds = useMemo(
+    () => [...(platforms?.map(p => p.id) ?? []), ...available.map(catalogRowId)],
+    [available, platforms]
+  )
+
   const [selectedId, setSelectedId] = useRouteEnumParam('platform', platformIds, platformIds[0] ?? '')
 
   const restartGatewayNow = useCallback(async () => {
@@ -218,6 +227,7 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
 
         if (scopeRef.current === scopeProfile) {
           setPlatforms(result.platforms)
+          setAvailable(result.available ?? [])
         }
       } catch (err) {
         if (!silent) {
@@ -282,6 +292,7 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   if (prevScope !== scopeProfile) {
     setPrevScope(scopeProfile)
     setPlatforms(null)
+    setAvailable([])
     setPairing({ approved: [], pending: [] })
     setEdits({})
   }
@@ -335,13 +346,18 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
     }
   }, [changeEventsAvailable, refreshAll])
 
+  const selectedCatalog = useMemo(
+    () => available.find(row => catalogRowId(row) === selectedId) ?? null,
+    [available, selectedId]
+  )
+
   const selected = useMemo(() => {
-    if (!platforms) {
+    if (!platforms || selectedCatalog) {
       return null
     }
 
     return platforms.find(platform => platform.id === selectedId) || platforms[0] || null
-  }, [platforms, selectedId])
+  }, [platforms, selectedCatalog, selectedId])
 
   const pendingByPlatform = useMemo(() => byPlatform(pairing.pending), [pairing.pending])
   const approvedByPlatform = useMemo(() => byPlatform(pairing.approved), [pairing.approved])
@@ -359,6 +375,25 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
     () => platforms?.filter(platform => platformMatches(platform, activeStatusFilter, query)) ?? [],
     [activeStatusFilter, platforms, query]
   )
+
+  // Not installed has no status yet: the rows show under All only.
+  const visibleAvailable = useMemo(() => {
+    const needle = normalize(query)
+
+    return activeStatusFilter !== 'all'
+      ? []
+      : available.filter(row => !needle || normalize(`${row.title} ${row.name}`).includes(needle))
+  }, [activeStatusFilter, available, query])
+
+  // An install from this page: re-read the list (the plugin's card replaces its catalog row) and open
+  // the card it registered, whose credential form is what the user picked the row for.
+  async function handleCatalogInstalled(platformIdsAdded: string[]) {
+    await refreshPlatforms(true)
+
+    if (platformIdsAdded[0]) {
+      setSelectedId(platformIdsAdded[0])
+    }
+  }
 
   // Picking a filter moves the detail pane into it. Only on that click: a
   // platform that leaves the filter because you just enabled it stays open.
@@ -593,6 +628,22 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                     </li>
                   ))}
                 </ul>
+                {visibleAvailable.length > 0 && (
+                  <section className="mt-3">
+                    <SectionTitle>{m.catalog.sectionTitle}</SectionTitle>
+                    <ul className="mt-1 space-y-1">
+                      {visibleAvailable.map(row => (
+                        <li key={row.name}>
+                          <CatalogPlatformRow
+                            active={selectedCatalog?.name === row.name}
+                            onSelect={() => setSelectedId(catalogRowId(row))}
+                            row={row}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
               </ListColumn>
 
               <DetailColumn
@@ -624,6 +675,13 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
                       </Button>
                     </AlertDescription>
                   </Alert>
+                )}
+                {selectedCatalog && (
+                  <CatalogPlatformDetail
+                    onInstalled={handleCatalogInstalled}
+                    row={selectedCatalog}
+                    scopeProfile={scopeProfile}
+                  />
                 )}
                 {selected && (
                   <PlatformDetail

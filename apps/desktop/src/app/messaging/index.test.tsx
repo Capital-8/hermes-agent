@@ -27,12 +27,15 @@ const startTelegramOnboarding = vi.fn()
 const getTelegramOnboardingStatus = vi.fn()
 const applyTelegramOnboarding = vi.fn()
 const notify = vi.fn()
+const installMessagingCatalogPlatform = vi.fn()
 
 vi.mock('@/hermes', () => ({
   approvePairing: (platformId: string, requestId: string, profile?: null | string) =>
     approvePairing(platformId, requestId, profile),
   getMessagingPlatforms: (profile?: null | string) => getMessagingPlatforms(profile),
   getPairing: (profile?: null | string) => getPairing(profile),
+  installMessagingCatalogPlatform: (name: string, confirmed: boolean, profile?: null | string) =>
+    installMessagingCatalogPlatform(name, confirmed, profile),
   getProfiles: vi.fn(async () => ({ profiles: [] })),
   revokePairing: (platformId: string, userId: string, profile?: null | string) =>
     revokePairing(platformId, userId, profile),
@@ -584,5 +587,72 @@ describe('MessagingView Telegram quick setup', () => {
     } finally {
       $settingsScopeOverride.set(null)
     }
+  })
+})
+
+describe('MessagingView catalog platforms', () => {
+  const yuanbao = {
+    badge: 'labs' as const,
+    blocked: '',
+    blocked_reason: '',
+    disclosure: 'Messages travel between Yuanbao servers and your gateway.',
+    install_command: 'hermes plugins install yuanbao',
+    name: 'yuanbao',
+    needs_confirm: true,
+    summary: 'Tencent Yuanbao messaging platform.',
+    title: 'yuanbao'
+  }
+
+  it('installs a Hermes Labs platform only after the confirm, then opens the card it registered', async () => {
+    $settingsScopeOverride.set(null)
+    getMessagingPlatforms.mockResolvedValue({ available: [yuanbao], platforms: [platform()] })
+    installMessagingCatalogPlatform.mockResolvedValue({ ok: true, platforms: ['yuanbao'], plugin_name: 'yuanbao' })
+
+    await renderMessaging()
+    fireEvent.click(await screen.findByRole('button', { name: /yuanbao.*Hermes Labs/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Install$/ }))
+    expect(installMessagingCatalogPlatform).not.toHaveBeenCalled()
+
+    // What the backend lists once the plugin is installed: its own card, labelled and masked.
+    getMessagingPlatforms.mockResolvedValue({
+      available: [],
+      platforms: [
+        platform(),
+        platform({
+          id: 'yuanbao',
+          name: 'Yuanbao',
+          env_vars: [
+            {
+              advanced: false,
+              description: 'The App Secret',
+              help: '',
+              is_password: true,
+              is_set: false,
+              key: 'YUANBAO_APP_SECRET',
+              prompt: 'App Secret',
+              redacted_value: null,
+              required: true
+            }
+          ]
+        })
+      ]
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Install anyway' }))
+    await waitFor(() => expect(installMessagingCatalogPlatform).toHaveBeenCalledWith('yuanbao', true, 'default'))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Yuanbao' })).toBeTruthy())
+  })
+
+  it('says why a row cannot install and the command to run instead', async () => {
+    $settingsScopeOverride.set(null)
+    getMessagingPlatforms.mockResolvedValue({
+      available: [{ ...yuanbao, blocked: 'lazy_installs_off', blocked_reason: 'off' }],
+      platforms: [platform()]
+    })
+
+    await renderMessaging()
+    fireEvent.click(await screen.findByRole('button', { name: /yuanbao.*Hermes Labs/i }))
+    expect(await screen.findByText(/security\.allow_lazy_installs/)).toBeTruthy()
+    expect(screen.getByText('hermes plugins install yuanbao')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Install$/ })).toBeNull()
   })
 })

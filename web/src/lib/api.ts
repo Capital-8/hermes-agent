@@ -42,14 +42,22 @@ export type {
   WebhooksResponse,
 } from "./api-webhooks";
 import type {
-  MessagingPlatform,
+  MessagingCatalogInstallResult,
+  MessagingPlatformTestResult,
+  MessagingPlatformsResponse,
+  MessagingPlatformUpdate,
   RelayLinkCode,
   RelayLinkCodeState,
   RelayLinksResponse,
 } from "./api-messaging";
 export type {
+  CatalogMessagingPlatform,
+  MessagingCatalogInstallResult,
   MessagingPlatform,
   MessagingPlatformEnvVar,
+  MessagingPlatformTestResult,
+  MessagingPlatformsResponse,
+  MessagingPlatformUpdate,
   RelayLinkCode,
   RelayLinkCodeState,
   RelayLinkedAccount,
@@ -970,6 +978,13 @@ export const api = {
       `/api/messaging/relay/${encodeURIComponent(platform)}/accounts/${encodeURIComponent(platformUserId)}`,
       { method: "DELETE" },
     ),
+  // Catalog platform install: can take minutes; a refusal is `ok: false` with the command to run.
+  installMessagingCatalogPlatform: (name: string, confirmed: boolean) =>
+    fetchJSON<MessagingCatalogInstallResult>(`/api/messaging/catalog/${encodeURIComponent(name)}/install`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed }),
+    }),
   testMessagingPlatform: (id: string) =>
     fetchJSON<MessagingPlatformTestResult>(
       `/api/messaging/platforms/${encodeURIComponent(id)}/test`,
@@ -1672,24 +1687,6 @@ export interface McpOAuthFlow {
   authorization_url: string | null;
   error: string | null;
   tools?: Array<{ name: string; description: string }>;
-}
-
-export interface MessagingPlatformsResponse {
-  env_path: string;
-  gateway_start_command: string;
-  platforms: MessagingPlatform[];
-}
-
-export interface MessagingPlatformUpdate {
-  enabled?: boolean;
-  env?: Record<string, string>;
-  clear_env?: string[];
-}
-
-export interface MessagingPlatformTestResult {
-  ok: boolean;
-  state: string;
-  message: string;
 }
 
 export interface PairingUser {
