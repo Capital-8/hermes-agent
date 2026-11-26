@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $changeEventsAvailable, $pairingChangeTick, $platformsChangeTick } from '@/store/live-sync'
@@ -665,6 +665,55 @@ describe('MessagingView catalog platforms', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Install$/ })).toBeNull())
     expect(screen.queryByText('Not installed')).toBeNull()
     expect(installMessagingCatalogPlatform).not.toHaveBeenCalled()
+  })
+
+  it('leaves the user where they went when an install finishes after Messaging unmounted', async () => {
+    $settingsScopeOverride.set(null)
+    getMessagingPlatforms.mockResolvedValue({
+      available: [{ ...yuanbao, badge: 'official', needs_confirm: false }],
+      platforms: [platform()]
+    })
+    let finish!: (value: unknown) => void
+    installMessagingCatalogPlatform.mockImplementation(() => new Promise(resolve => (finish = resolve)))
+
+    function Nav() {
+      const navigate = useNavigate()
+      const location = useLocation()
+
+      return (
+        <>
+          <button onClick={() => navigate('/elsewhere')}>Leave Messaging</button>
+          <div data-testid="current-route">{location.pathname}</div>
+        </>
+      )
+    }
+
+    await act(async () => {
+      render(
+        <MemoryRouter initialEntries={['/messaging']}>
+          <Nav />
+          <Routes>
+            <Route element={<MessagingView />} path="/messaging" />
+            <Route element={<div>Elsewhere</div>} path="/elsewhere" />
+          </Routes>
+        </MemoryRouter>
+      )
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /yuanbao.*Official/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Install$/ }))
+    await waitFor(() => expect(installMessagingCatalogPlatform).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Leave Messaging' }))
+    expect(screen.getByTestId('current-route').textContent).toBe('/elsewhere')
+
+    getMessagingPlatforms.mockResolvedValue({
+      available: [],
+      platforms: [platform(), platform({ id: 'yuanbao', name: 'Yuanbao' })]
+    })
+    await act(async () => {
+      finish({ ok: true, platforms: ['yuanbao'], plugin_name: 'yuanbao' })
+    })
+
+    expect(screen.getByTestId('current-route').textContent).toBe('/elsewhere')
   })
 
   it('says why a row cannot install and the command to run instead', async () => {

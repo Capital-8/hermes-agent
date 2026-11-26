@@ -395,9 +395,11 @@ export function MessagingView({ setStatusbarItemGroup: _setStatusbarItemGroup, .
   // An install from this page: re-read the list (the plugin's card replaces its catalog row) and open
   // the card it registered, whose credential form is what the user picked the row for. Only while the
   // page still shows that row under the same profile: a newer pick, a profile switch or leaving
-  // Messaging wins over an install that finishes late.
+  // Messaging wins over an install that finishes late. One owner object per mount, updated in place, so
+  // the unmount below marks the very object a late completion reads.
   const ownerRef = useRef({ mounted: true, profile: scopeProfile, selectedId })
-  ownerRef.current = { ...ownerRef.current, profile: scopeProfile, selectedId }
+  ownerRef.current.profile = scopeProfile
+  ownerRef.current.selectedId = selectedId
   useEffect(() => {
     const owner = ownerRef.current
     owner.mounted = true
