@@ -2,7 +2,7 @@
  "counts": {
   "http": {
    "keep-host-wide": 1,
-   "undecided": 354
+   "undecided": 355
   },
   "rpc": {
    "authority": 113,
@@ -134,6 +134,7 @@
   {"current_path": "hermes_cli.web_routers.memory_providers:get_memory_provider_config", "decision": "undecided", "handler": "GET /api/memory/providers/{name}/config", "kind": "http", "ref": ""},
   {"current_path": "hermes_cli.memory_oauth:memory_oauth_status", "decision": "undecided", "handler": "GET /api/memory/providers/{provider}/oauth/status", "kind": "http", "ref": ""},
   {"current_path": "hermes_cli.web_routers.messaging:get_messaging_platforms", "decision": "undecided", "handler": "GET /api/messaging/platforms", "kind": "http", "ref": ""},
+  {"current_path": "hermes_cli.web_routers.messaging:get_messaging_platforms_signature", "decision": "undecided", "handler": "GET /api/messaging/platforms/signature", "kind": "http", "ref": ""},
   {"current_path": "hermes_cli.web_routers.messaging_relay:get_relay_links", "decision": "undecided", "handler": "GET /api/messaging/relay", "kind": "http", "ref": ""},
   {"current_path": "hermes_cli.web_routers.messaging_relay:get_relay_link_state", "decision": "undecided", "handler": "GET /api/messaging/relay/link/{code}", "kind": "http", "ref": ""},
   {"current_path": "hermes_cli.web_routers.messaging:get_telegram_onboarding_status", "decision": "undecided", "handler": "GET /api/messaging/telegram/onboarding/{pairing_id}", "kind": "http", "ref": ""},

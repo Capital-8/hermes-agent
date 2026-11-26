@@ -17,7 +17,9 @@ every read goes through :func:`refresh_platform_plugins` instead of the process-
 
 from __future__ import annotations
 
+import hashlib
 import threading
+from pathlib import Path
 from dataclasses import asdict, dataclass
 from typing import Any, Collection, Literal, Optional
 
@@ -90,6 +92,25 @@ def refresh_platform_plugins() -> None:
             return
         discover_plugins(force=bool(get_plugin_manager()._discovered))
         _refreshed_at[key] = signature
+
+
+def _mtime_ns(path: Path) -> Optional[int]:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def platform_list_signature(home: Path) -> str:
+    """Digest of what a channels page lists for ``home``: platform connect/disconnect/health
+    (``gateway_state.json``), a platform plugin installed, removed or replaced (another terminal, the
+    background default install, a Plugins-page install), and config.yaml (a plugin enabled, a platform
+    toggled elsewhere). Desktop gets it pushed as ``platforms.changed``; the dashboard polls it, so
+    both refresh on the same moves. Stat-cheap: no plugin discovery, no catalog read."""
+    from hermes_cli.config import platform_manifest_stamp
+    parts = (_mtime_ns(home / "gateway_state.json"), _mtime_ns(home / "config.yaml"),
+             platform_manifest_stamp(home))
+    return hashlib.sha256(repr(parts).encode()).hexdigest()[:16]
 
 
 def installed_catalog_names() -> frozenset[str]:

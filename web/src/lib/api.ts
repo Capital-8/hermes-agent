@@ -955,6 +955,9 @@ export const api = {
   // Messaging platforms (gateway channels)
   getMessagingPlatforms: () =>
     fetchJSON<MessagingPlatformsResponse>("/api/messaging/platforms"),
+  // Stat-cheap digest of the list above, polled to notice installs made outside this page.
+  getMessagingPlatformsSignature: () =>
+    fetchJSON<{ signature: string }>("/api/messaging/platforms/signature"),
   // `hot_served`: a live multiplexer serving the selected named profile rebuilt its adapters from the
   // new credentials right away (no gateway restart needed).
   updateMessagingPlatform: (id: string, body: MessagingPlatformUpdate) =>

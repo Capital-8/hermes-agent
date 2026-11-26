@@ -121,3 +121,17 @@ def test_catalog_platform_installed_by_another_process_is_not_offered_and_instal
     result = install_catalog_platform("chatone")  # the stale page's Install click
     assert result["ok"] is True and result["already_installed"] is True
     assert result["plugin_name"] == "chatone" and result["platforms"] == ["chatone"]
+
+
+def test_channels_page_poll_signature_moves_when_a_platform_plugin_lands_elsewhere():
+    import asyncio
+
+    from hermes_cli.web_routers.messaging import get_messaging_platforms_signature
+
+    def poll():
+        return asyncio.run(get_messaging_platforms_signature())["signature"]
+
+    loaded = poll()
+    assert poll() == loaded  # nothing moved: the page does not reload
+    _install_late_platform("lateplug", "lateplug")  # the background default install lands
+    assert poll() != loaded

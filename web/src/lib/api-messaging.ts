@@ -79,6 +79,8 @@ export interface CatalogMessagingPlatform {
 }
 
 export interface MessagingPlatformsResponse {
+  /** Digest of what this list shows; `GET /api/messaging/platforms/signature` moves with it. Absent on older backends. */
+  signature?: string;
   env_path: string;
   gateway_start_command: string;
   platforms: MessagingPlatform[];

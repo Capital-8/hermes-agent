@@ -35,6 +35,7 @@ import type {
   WhatsAppOnboardingStartResponse,
 } from "@/lib/api";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
+import { usePlatformsSignaturePoll } from "@/hooks/usePlatformsSignaturePoll";
 import { AllowlistInput } from "@/components/AllowlistInput";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { usePageHeader } from "@/contexts/usePageHeader";
@@ -160,6 +161,7 @@ function normalizeWhatsAppMode(mode: unknown): "bot" | "self-chat" | null {
 export default function ChannelsPage() {
   const [platforms, setPlatforms] = useState<MessagingPlatform[]>([]);
   const [available, setAvailable] = useState<CatalogMessagingPlatform[]>([]);
+  const [listSignature, setListSignature] = useState<string | null>(null);
   const [envPath, setEnvPath] = useState("~/.hermes/.env");
   const [gatewayStartCommand, setGatewayStartCommand] = useState(
     "hermes gateway start",
@@ -194,6 +196,7 @@ export default function ChannelsPage() {
       .then((res) => {
         setPlatforms(res.platforms);
         setAvailable(res.available ?? []);
+        setListSignature(res.signature ?? null);
         setEnvPath(res.env_path || "~/.hermes/.env");
         setGatewayStartCommand(res.gateway_start_command || "hermes gateway start");
         return res.platforms;
@@ -207,6 +210,7 @@ export default function ChannelsPage() {
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [load]);
+  usePlatformsSignaturePoll(listSignature, load);
 
   const openConfig = (platform: MessagingPlatform) => {
     const initial: Record<string, string> = {};

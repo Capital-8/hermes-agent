@@ -442,12 +442,10 @@ def _groups_changed_payload(before: dict, after: dict) -> dict:
 
 
 def _platforms_sig():
-    """What the Messaging page lists moved: platform connect/disconnect/health (``gateway_state.json``),
-    a platform plugin installed, removed or replaced (another terminal, the background default install,
-    a Plugins-page install), or config.yaml (a plugin enabled, a platform toggled elsewhere)."""
-    from hermes_cli.config import platform_manifest_stamp
-    return (_home_mtime_ns("gateway_state.json"), _home_mtime_ns("config.yaml"),
-            platform_manifest_stamp(_watcher_home()))
+    """What the Messaging page lists moved (:func:`hermes_cli.catalog_platforms.platform_list_signature`;
+    the dashboard polls the same digest)."""
+    from hermes_cli.catalog_platforms import platform_list_signature
+    return platform_list_signature(_watcher_home())
 
 
 def _skills_sig():
