@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -172,6 +172,11 @@ export default function ChannelsPage() {
 
   // Config modal state
   const [editing, setEditing] = useState<MessagingPlatform | null>(null);
+  // Read after an await (a catalog install), where the render's `editing` is stale.
+  const editingRef = useRef<MessagingPlatform | null>(null);
+  useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
   const [draftEnv, setDraftEnv] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -223,11 +228,12 @@ export default function ChannelsPage() {
     setEditing(platform);
   };
 
-  // A catalog install registered these platform ids: open the first one's credential form.
+  // A catalog install registered these platform ids: open the first one's credential form, unless the
+  // user opened another form while it ran (its unsaved input wins; the new card is listed either way).
   const handleCatalogInstalled = async (platformIds: string[]) => {
     const fresh = await load();
     const added = fresh?.find((p) => p.id === platformIds[0]);
-    if (added) openConfig(added);
+    if (added && !editingRef.current) openConfig(added);
   };
 
   const handleSave = async () => {

@@ -95,6 +95,33 @@ it("installs an official platform directly and opens the new card's credential f
   expect(document.querySelector<HTMLInputElement>("#field-YUANBAO_TOKEN")?.type).toBe("password");
 });
 
+it("keeps a form the user opened while the install ran instead of replacing it", async () => {
+  const discordCard: MessagingPlatform = {
+    ...yuanbaoCard, id: "discord", name: "Discord", description: "Discord bot",
+    env_vars: [{ ...yuanbaoCard.env_vars[0], key: "DISCORD_BOT_TOKEN", prompt: "Discord token" }],
+  };
+  getMessagingPlatforms.mockResolvedValue({
+    env_path: "~/.hermes/.env", gateway_start_command: "hermes gateway start",
+    platforms: [discordCard], available: [row({})],
+  });
+  await act(async () => { root.render(<ChannelsPage />); });
+  let finishInstall: (value: unknown) => void = () => undefined;
+  installMessagingCatalogPlatform.mockReturnValue(new Promise((resolve) => { finishInstall = resolve; }));
+
+  await click(button(rowEl("yuanbao"), "Install"));
+  await click(button(container, "Configure"));  // Discord's form, opened while Yuanbao installs
+  expect(document.getElementById("channel-config-title")?.textContent).toBe("Configure Discord");
+
+  getMessagingPlatforms.mockResolvedValue({
+    env_path: "~/.hermes/.env", gateway_start_command: "hermes gateway start",
+    platforms: [discordCard, yuanbaoCard], available: [],
+  });
+  await act(async () => { finishInstall({ ok: true, plugin_name: "yuanbao", platforms: ["yuanbao"], warnings: [] }); });
+
+  expect(document.getElementById("channel-config-title")?.textContent).toBe("Configure Discord");
+  expect(container.textContent).toContain("Yuanbao");
+});
+
 it("asks before installing a Hermes Labs platform and sends the confirmation", async () => {
   await render([row({ name: "xchat", title: "X Chat", badge: "labs", needs_confirm: true })]);
   installMessagingCatalogPlatform.mockResolvedValue({
