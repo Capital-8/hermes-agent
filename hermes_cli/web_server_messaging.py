@@ -97,7 +97,7 @@ def _messaging_platform_catalog() -> tuple[dict[str, Any], ...]:
         # This server process does not import model_tools (whose import discovers plugins), and it
         # outlives installs made elsewhere (the gateway's background default install, another
         # terminal): refresh against the plugin tree on every read, not once per process.
-        from hermes_cli.catalog_platforms import refresh_platform_plugins
+        from hermes_cli.catalog_platform_listing import refresh_platform_plugins
         refresh_platform_plugins()
         from gateway.platform_registry import platform_registry
         for plugin_entry in platform_registry.plugin_entries():

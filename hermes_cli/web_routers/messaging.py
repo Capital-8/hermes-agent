@@ -25,7 +25,7 @@ from fastapi import APIRouter, HTTPException
 from gateway.config import SHARED_LISTENER_MIRROR_PLATFORMS as _LISTENER_MIRRORS
 from gateway.status import resolve_gateway_liveness, retained_gateway_state
 from hermes_cli._subprocess_compat import windows_hide_flags
-from hermes_cli.catalog_platforms import (
+from hermes_cli.catalog_platform_listing import (
     available_catalog_platforms,
     install_catalog_platform,
     platform_list_signature,

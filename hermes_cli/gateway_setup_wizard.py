@@ -62,7 +62,7 @@ def _all_platforms(catalog: bool = False) -> list[dict]:
     appends the catalog platforms nothing loaded provides yet (``_catalog_platform``): picking one
     installs it first. Status summaries leave it off: a row that is not installed is no progress."""
     try:
-        from hermes_cli.catalog_platforms import refresh_platform_plugins
+        from hermes_cli.catalog_platform_listing import refresh_platform_plugins
         refresh_platform_plugins()  # a plugin installed since the menu last drew (background default install)
     except Exception as e:
         _gw().logger.debug("plugin discovery failed during platform enumeration: %s", e)
@@ -81,7 +81,7 @@ def _all_platforms(catalog: bool = False) -> list[dict]:
             continue
         platforms.append(_registry_row(entry))
     if catalog:
-        from hermes_cli.catalog_platforms import available_catalog_platforms
+        from hermes_cli.catalog_platform_listing import available_catalog_platforms
         provided = {name for p in platforms for name in (p["key"], getattr(p.get("_registry_entry"), "plugin_name", ""))}
         platforms += [{"key": row.name, "label": row.title, "emoji": "📦", "token_var": "", "_catalog_platform": row}
                       for row in available_catalog_platforms(provided)]
@@ -385,7 +385,7 @@ def _install_catalog_pick(row) -> list[dict]:
     """Say what a catalog platform is, install it on a yes (a Hermes Labs one only on an explicit yes,
     default no) and return the setup rows of the platforms it registered. Blocked or failed: the
     reason and the one command to run, and nothing to configure."""
-    from hermes_cli.catalog_platforms import BLOCKED_SENTENCES, install_catalog_platform
+    from hermes_cli.catalog_platform_listing import BLOCKED_SENTENCES, install_catalog_platform
     from gateway.platform_registry import platform_registry
     print_setup_header(f"📦 {row.title}")
     _gw().print_info(f"  {row.summary}")

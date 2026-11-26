@@ -442,9 +442,9 @@ def _groups_changed_payload(before: dict, after: dict) -> dict:
 
 
 def _platforms_sig():
-    """What the Messaging page lists moved (:func:`hermes_cli.catalog_platforms.platform_list_signature`;
+    """What the Messaging page lists moved (:func:`hermes_cli.catalog_platform_listing.platform_list_signature`;
     the dashboard polls the same digest)."""
-    from hermes_cli.catalog_platforms import platform_list_signature
+    from hermes_cli.catalog_platform_listing import platform_list_signature
     return platform_list_signature(_watcher_home())
 
 

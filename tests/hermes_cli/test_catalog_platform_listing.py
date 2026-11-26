@@ -32,7 +32,7 @@ def fixture_catalog(monkeypatch):
 
 
 def test_nous_built_catalog_platforms_are_offered_community_ones_are_not(fixture_catalog):
-    from hermes_cli.catalog_platforms import available_catalog_platforms
+    from hermes_cli.catalog_platform_listing import available_catalog_platforms
 
     rows = {row.name: row for row in available_catalog_platforms(provided=())}
     assert set(rows) == {"chatone", "chattwo", "labschat"}  # community and non-platform entries are not setup picks
@@ -53,7 +53,7 @@ def test_setup_menu_lists_catalog_platforms_and_lazy_off_says_why(fixture_catalo
     assert not any(p.get("_catalog_platform") for p in gateway._all_platforms())  # summaries: no progress
 
     (get_hermes_home() / "config.yaml").write_text("security:\n  allow_lazy_installs: false\n", encoding="utf-8")
-    from hermes_cli.catalog_platforms import install_catalog_platform
+    from hermes_cli.catalog_platform_listing import install_catalog_platform
     refused = install_catalog_platform("labschat", confirmed=True)
     assert refused["ok"] is False and "allow_lazy_installs is off" in refused["error"]
     assert refused["install_command"] == "hermes plugins install labschat"
@@ -113,7 +113,7 @@ def test_channels_page_open_before_an_install_elsewhere_lists_it_on_the_next_rea
 
 
 def test_catalog_platform_installed_by_another_process_is_not_offered_and_install_says_already(fixture_catalog):
-    from hermes_cli.catalog_platforms import available_catalog_platforms, install_catalog_platform
+    from hermes_cli.catalog_platform_listing import available_catalog_platforms, install_catalog_platform
 
     assert "chatone" in {row.name for row in available_catalog_platforms()}  # the page drew it as installable
     _install_late_platform("chatone", "chatone", catalog_name="chatone")  # the background default install lands
