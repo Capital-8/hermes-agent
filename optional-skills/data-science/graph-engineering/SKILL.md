@@ -1,30 +1,28 @@
 ---
 name: graph-engineering
-description: Build knowledge graphs and agent task graphs.
+description: Build knowledge graphs from text and serve them to LLMs.
 version: 1.0.0
 author: codejunkie99 (ported to Hermes by Hermes Agent)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [knowledge-graph, graphrag, ontology, extraction, orchestration, data-science]
-    related_skills: [gitnexus-explorer, excalidraw]
+    tags: [knowledge-graph, graphrag, ontology, extraction, data-science]
+    related_skills: [dynamic-workflow, llm-wiki, gitnexus-explorer, excalidraw]
 ---
 
 # Graph Engineering
 
 Use when asked to build a knowledge graph, extract entities/relations/events from text, design
-an ontology, dedupe/merge entities, add graph memory or GraphRAG to an agent, orchestrate
-multi-agent workflows as a task graph, or teach graph engineering (teaching mode explains each
-stage with worked examples and visual diagram artifacts).
+an ontology, dedupe/merge entities, add graph memory or GraphRAG to an agent, or teach graph
+engineering (teaching mode explains each stage with worked examples and visual diagram
+artifacts). Orchestrating agents as a task graph (fan-out, verifier, human gate) is the
+`dynamic-workflow` skill's job, not this one.
 
 > **Hermes adaptation notes** (read once, then follow the original body below):
-> - **Task-graph half → Hermes primitives.** The diamond pattern maps directly onto
->   `delegate_task` batch mode (parallel workers) with a separate verifier task — never let a
->   worker grade its own output in its own context. The plan node is your `todo` list; the
->   human gate is Hermes' approval flow (route irreversible actions — send, publish, delete,
->   deploy — through the user, not around them). "One writer per file" and loop caps apply
->   verbatim to subagent fan-outs.
+> - **Task-graph half lives elsewhere.** The upstream skill also teaches agent orchestration
+>   (parallel fan-out, separate verifier, stop rule, human gate). In Hermes that is the
+>   `dynamic-workflow` skill; load it for that request instead.
 > - **Small-scale storage default.** For stage 2 at agent scale, plain typed edges in
 >   JSON/JSONL or SQLite (queried via `execute_code`) beats standing up Neo4j — reach for a
 >   graph database only when multi-hop query volume justifies it.
@@ -40,18 +38,11 @@ stage with worked examples and visual diagram artifacts).
 >   (MIT), itself distilled and translated from Southeast University's graduate Knowledge
 >   Graph course (npubird/KnowledgeGraphCourse, Prof. Peng Wang).
 
-Graph engineering is the discipline of designing the structures agents work through — not the
-prompts. It has two halves:
-
-1. **Knowledge graphs** — what agents remember. Nodes are entities and facts, edges are
-   relationships with time and provenance. This file's 9-stage pipeline covers it, distilled
-   from Southeast University's graduate KG course
-   (https://github.com/npubird/KnowledgeGraphCourse, Prof. Peng Wang), translated to English
-   and adapted for LLM-era agents.
-2. **Task graphs** — how agents work. Nodes are jobs, edges are execution dependencies:
-   parallel fan-out, separate verifier contexts, the stop rule, the human gate.
-   Read [references/task-graphs.md](references/task-graphs.md) when the request is about
-   orchestrating agents rather than building memory.
+A knowledge graph is what agents remember: nodes are entities and facts, edges are
+relationships with time and provenance. This file's 9-stage pipeline covers building one,
+distilled from Southeast University's graduate KG course
+(https://github.com/npubird/KnowledgeGraphCourse, Prof. Peng Wang), translated to English and
+adapted for LLM-era agents.
 
 Core mental model: a knowledge graph is a **product with a schema**, not a pile of triples.
 Quality comes from the pipeline order — model the domain BEFORE extracting, fuse BEFORE storing,
@@ -66,15 +57,14 @@ not just execute. Rules:
    it as the running example through all stages.
 2. **Generate visual artifacts as you teach.** Concepts in this discipline are shapes; show
    them. For each major concept, produce a small diagram the user can keep — mermaid diagrams
-   (flowchart for the pipeline and task graphs, `graph LR` for example ontologies and
-   subgraphs) or a single self-contained HTML page when interactivity helps. At minimum:
-   the 9-stage pipeline, a 3-type ontology drawn from the user's domain, one extracted
-   subgraph (5-10 nodes) from a real sample, and the diamond pattern with the user's own jobs
-   as nodes.
+   (flowchart for the pipeline, `graph LR` for example ontologies and subgraphs) or a single
+   self-contained HTML page when interactivity helps. At minimum: the 9-stage pipeline, a
+   3-type ontology drawn from the user's domain, and one extracted subgraph (5-10 nodes) from
+   a real sample.
 3. Teach in the pipeline's order, one stage per exchange, each ending with a small exercise
    ("write 3 competency questions for your project") before moving on.
-4. Close by assembling what was built during the lesson into a starter `ontology.yaml` and a
-   drawn task graph for the user's first real build.
+4. Close by assembling what was built during the lesson into a starter `ontology.yaml` for the
+   user's first real build.
 
 ## The 9-Stage Pipeline
 
